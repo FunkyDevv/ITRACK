@@ -1,0 +1,279 @@
+import * as React from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Settings as SettingsIcon,
+  User,
+  Bell,
+  Shield,
+  Clock,
+  Save,
+  Trash2
+} from "lucide-react";
+
+export default function SettingsPage() {
+  const { userProfile } = useAuth();
+  const { toast } = useToast();
+  
+  const [firstName, setFirstName] = React.useState(userProfile?.firstName || "");
+  const [lastName, setLastName] = React.useState(userProfile?.lastName || "");
+  const [email, setEmail] = React.useState(userProfile?.email || "");
+  const [company, setCompany] = React.useState(userProfile?.company || "");
+  const [scheduledTimeIn, setScheduledTimeIn] = React.useState(userProfile?.scheduledTimeIn || "09:00");
+  const [scheduledTimeOut, setScheduledTimeOut] = React.useState(userProfile?.scheduledTimeOut || "17:00");
+  const [notifications, setNotifications] = React.useState(true);
+  const [emailAlerts, setEmailAlerts] = React.useState(true);
+  const [locationTracking, setLocationTracking] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  if (!userProfile) {
+    return null;
+  }
+
+  const isSupervisor = userProfile.role === "supervisor";
+  const isTeacher = userProfile.role === "teacher";
+  const isIntern = userProfile.role === "intern";
+
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      toast({
+        title: "Profile Updated",
+        description: "Your profile has been successfully updated",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update profile",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative h-full flex-1 flex flex-col bg-background overflow-hidden">
+      <div className="flex-1 space-y-4 p-8">
+        <div className="space-y-0.5">
+          <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
+          <p className="text-muted-foreground">
+            Manage your account settings and preferences.
+          </p>
+        </div>
+        <div className="space-y-6">
+          <div className="grid gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <User className="h-5 w-5" />
+                  <span>Profile</span>
+                </CardTitle>
+                <CardDescription>
+                  Manage your profile settings and account preferences
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      placeholder="Enter your first name"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      placeholder="Enter your last name"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Enter your email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="company">Company/School</Label>
+                    <Input
+                      id="company"
+                      placeholder="Enter your company/school"
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {isIntern && (
+                  <div className="space-y-4">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Schedule
+                    </h4>
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="timeIn">Time In</Label>
+                        <Input
+                          id="timeIn"
+                          type="time"
+                          value={scheduledTimeIn}
+                          onChange={(e) => setScheduledTimeIn(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="timeOut">Time Out</Label>
+                        <Input
+                          id="timeOut"
+                          type="time"
+                          value={scheduledTimeOut}
+                          onChange={(e) => setScheduledTimeOut(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={handleSaveProfile}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    "Saving..."
+                  ) : (
+                    <>
+                      <Save className="mr-2 h-4 w-4" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Bell className="h-5 w-5" />
+                  <span>Notifications</span>
+                </CardTitle>
+                <CardDescription>
+                  Manage how you receive notifications and alerts
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between space-x-2">
+                  <Label htmlFor="notifications" className="flex flex-col space-y-1">
+                    <span>Push Notifications</span>
+                    <span className="font-normal text-sm text-muted-foreground">
+                      Receive notifications about important updates
+                    </span>
+                  </Label>
+                  <Switch
+                    id="notifications"
+                    checked={notifications}
+                    onCheckedChange={setNotifications}
+                  />
+                </div>
+                <div className="flex items-center justify-between space-x-2">
+                  <Label htmlFor="emailAlerts" className="flex flex-col space-y-1">
+                    <span>Email Alerts</span>
+                    <span className="font-normal text-sm text-muted-foreground">
+                      Get important updates via email
+                    </span>
+                  </Label>
+                  <Switch
+                    id="emailAlerts"
+                    checked={emailAlerts}
+                    onCheckedChange={setEmailAlerts}
+                  />
+                </div>
+                {isIntern && (
+                  <div className="flex items-center justify-between space-x-2">
+                    <Label htmlFor="locationTracking" className="flex flex-col space-y-1">
+                      <span>Location Tracking</span>
+                      <span className="font-normal text-sm text-muted-foreground">
+                        Allow location tracking for attendance
+                      </span>
+                    </Label>
+                    <Switch
+                      id="locationTracking"
+                      checked={locationTracking}
+                      onCheckedChange={setLocationTracking}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {isSupervisor && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Shield className="h-5 w-5" />
+                    <span>Supervisor Controls</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Manage system-wide settings and controls
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="p-4 border rounded-lg">
+                      <div className="font-medium mb-1">Active Users</div>
+                      <div className="text-2xl">24</div>
+                    </div>
+                    <div className="p-4 border rounded-lg">
+                      <div className="font-medium mb-1">System Uptime</div>
+                      <div className="text-2xl">99.9%</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card className="border-destructive">
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2 text-destructive">
+                  <Trash2 className="h-5 w-5" />
+                  <span>Danger Zone</span>
+                </CardTitle>
+                <CardDescription>
+                  Irreversible and destructive actions
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between p-4 border border-destructive rounded-lg">
+                  <div className="space-y-1">
+                    <h4 className="font-medium">Delete Account</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Permanently delete your account and all associated data
+                    </p>
+                  </div>
+                  <Button variant="destructive" size="sm">
+                    Delete Account
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
