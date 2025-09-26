@@ -6,7 +6,7 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
-import { storage } from "./storage";
+import { storage } from "./storage.js";
 
 if (!process.env.REPLIT_DOMAINS) {
   throw new Error("Environment variable REPLIT_DOMAINS not provided");
@@ -78,7 +78,13 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
+    // Create user object with required Express.User properties
+    const claims = tokens.claims();
+    const user = {
+      id: (claims && claims.sub) ? claims.sub : 'unknown',
+      email: (claims && claims.email) ? claims.email : 'unknown'
+    } as Express.User;
+    
     updateUserSession(user, tokens);
     await upsertUser(tokens.claims());
     verified(null, user);
@@ -98,8 +104,8 @@ export async function setupAuth(app: Express) {
     passport.use(strategy);
   }
 
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+  passport.serializeUser((user: Express.User, cb: (err: any, user: any) => void) => cb(null, user));
+  passport.deserializeUser((user: Express.User, cb: (err: any, user: any) => void) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
@@ -116,7 +122,8 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/logout", (req, res) => {
-    req.logout(() => {
+    // Cast req to any to work around the missing logout method in the type definition
+    (req as any).logout(() => {
       res.redirect(
         client.buildEndSessionUrl(config, {
           client_id: process.env.REPL_ID!,
@@ -128,9 +135,11 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
+  // Cast req to any to access user and isAuthenticated
+  const request = req as any;
+  const user = request.user;
 
-  if (!req.isAuthenticated() || !user.expires_at) {
+  if (!request.isAuthenticated() || !user?.expires_at) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 

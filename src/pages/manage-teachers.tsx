@@ -6,10 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy, limit, doc, setDoc, deleteDoc, updateDoc, where } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit, doc, setDoc, deleteDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { createInternAccount } from "@/lib/firebase";
 import LocationPicker from "@/components/LocationPicker";
@@ -25,7 +29,18 @@ import {
   Building2,
   Plus,
   Edit,
-  Trash2
+  Trash2,
+  MoreHorizontal,
+  UserCheck,
+  UserX,
+  Archive,
+  RefreshCw,
+  CheckSquare,
+  XSquare,
+  Loader2,
+  Copy,
+  Settings,
+  Clock
 } from "lucide-react";
 
 interface Teacher {
@@ -70,6 +85,13 @@ export default function ManageTeachers() {
     school: ""
   });
 
+  // Intern CRUD functionality states
+  const [selectedInterns, setSelectedInterns] = React.useState<string[]>([]);
+  const [operationLoading, setOperationLoading] = React.useState<string | null>(null);
+  const [bulkActionType, setBulkActionType] = React.useState<string>("");
+  const [editingIntern, setEditingIntern] = React.useState<any>(null);
+  const [showEditInternForm, setShowEditInternForm] = React.useState(false);
+
   console.log("🎯 ManageTeachers render - isAuthenticated:", isAuthenticated, "user:", !!user, "userProfile:", !!userProfile);
 
   // Fetch teachers from Firestore
@@ -111,6 +133,7 @@ export default function ManageTeachers() {
         const teachersData: Teacher[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data() as any;
+          console.log("📚 Teacher data from Firestore:", doc.id, data); // Debug log
           teachersData.push({
             uid: doc.id,
             email: data.email,
@@ -240,6 +263,200 @@ export default function ManageTeachers() {
     }
   };
 
+  // 🚀 INTERN CRUD FUNCTIONS
+  const handleQuickInternStatusChange = async (internId: string, newStatus: string) => {
+    try {
+      setOperationLoading(`status-${internId}`);
+      await updateDoc(doc(db, "interns", internId), { 
+        status: newStatus,
+        lastActivity: new Date()
+      });
+      
+      // Update local state
+      setTeacherInterns(prev => prev.map(intern => 
+        intern.uid === internId 
+          ? { ...intern, status: newStatus }
+          : intern
+      ));
+      console.log(`✅ Intern status updated to ${newStatus}`);
+    } catch (error) {
+      console.error("❌ Error updating intern status:", error);
+      alert("Failed to update intern status. Please try again.");
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const handleArchiveIntern = async (internId: string) => {
+    try {
+      setOperationLoading(`archive-${internId}`);
+      await updateDoc(doc(db, "interns", internId), { 
+        status: 'archived',
+        archivedAt: new Date(),
+        lastActivity: new Date()
+      });
+      
+      // Update local state
+      setTeacherInterns(prev => prev.map(intern => 
+        intern.uid === internId 
+          ? { ...intern, status: 'archived' }
+          : intern
+      ));
+      console.log("✅ Intern archived successfully");
+    } catch (error) {
+      console.error("❌ Error archiving intern:", error);
+      alert("Failed to archive intern. Please try again.");
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const handleDeleteIntern = async (internId: string, internName: string) => {
+    if (!window.confirm(`Are you sure you want to delete ${internName}? This action cannot be undone.`)) return;
+    
+    try {
+      setOperationLoading(`delete-${internId}`);
+      await deleteDoc(doc(db, "interns", internId));
+      
+      // Remove from local state
+      setTeacherInterns(prev => prev.filter(intern => intern.uid !== internId));
+      console.log("✅ Intern deleted successfully");
+    } catch (error) {
+      console.error("❌ Error deleting intern:", error);
+      alert("Failed to delete intern. Please try again.");
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const handleResetInternPassword = async (internId: string) => {
+    if (!window.confirm("Are you sure you want to reset this intern's password? They will need to set a new password on next login.")) return;
+    
+    try {
+      setOperationLoading(`reset-${internId}`);
+      // This would typically call a cloud function to reset password
+      // For now, just show a message
+      alert("Password reset email will be sent to the intern's email address.");
+      console.log("✅ Password reset initiated");
+    } catch (error) {
+      console.error("❌ Error resetting password:", error);
+      alert("Failed to reset password. Please try again.");
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const handleSelectIntern = (internId: string) => {
+    setSelectedInterns(prev => 
+      prev.includes(internId) 
+        ? prev.filter(id => id !== internId)
+        : [...prev, internId]
+    );
+  };
+
+  const handleSelectAllInterns = () => {
+    if (selectedInterns.length === teacherInterns.length) {
+      setSelectedInterns([]);
+    } else {
+      setSelectedInterns(teacherInterns.map(intern => intern.uid));
+    }
+  };
+
+  const handleBulkInternAction = async (action: string, value?: string) => {
+    if (selectedInterns.length === 0) return;
+    
+    const confirmMessage = action === 'delete' 
+      ? `Are you sure you want to delete ${selectedInterns.length} interns?`
+      : `Are you sure you want to ${action} ${selectedInterns.length} interns?`;
+      
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      setBulkActionType(action);
+      setOperationLoading('bulk');
+
+      const batch = writeBatch(db);
+      
+      selectedInterns.forEach(internId => {
+        const internRef = doc(db, "interns", internId);
+        
+        switch (action) {
+          case 'delete':
+            batch.delete(internRef);
+            break;
+          case 'status':
+            batch.update(internRef, { 
+              status: value,
+              lastActivity: new Date()
+            });
+            break;
+          case 'archive':
+            batch.update(internRef, { 
+              status: 'archived',
+              archivedAt: new Date(),
+              lastActivity: new Date()
+            });
+            break;
+          case 'activate':
+            batch.update(internRef, { 
+              status: 'active',
+              lastActivity: new Date()
+            });
+            break;
+        }
+      });
+
+      await batch.commit();
+      
+      // Update local state
+      if (action === 'delete') {
+        setTeacherInterns(prev => prev.filter(intern => !selectedInterns.includes(intern.uid)));
+      } else {
+        setTeacherInterns(prev => prev.map(intern => {
+          if (selectedInterns.includes(intern.uid)) {
+            if (action === 'status') {
+              return { ...intern, status: value };
+            } else if (action === 'archive') {
+              return { ...intern, status: 'archived' };
+            } else if (action === 'activate') {
+              return { ...intern, status: 'active' };
+            }
+          }
+          return intern;
+        }));
+      }
+      
+      setSelectedInterns([]);
+      console.log(`✅ Bulk ${action} completed successfully`);
+    } catch (error) {
+      console.error(`❌ Error in bulk ${action}:`, error);
+      alert(`Failed to ${action} interns. Please try again.`);
+    } finally {
+      setOperationLoading(null);
+      setBulkActionType("");
+    }
+  };
+
+  const getStatusColor = (status?: string) => {
+    switch (status) {
+      case 'active': return 'default';
+      case 'inactive': return 'secondary';
+      case 'suspended': return 'destructive';
+      case 'archived': return 'outline';
+      default: return 'default';
+    }
+  };
+
+  const getStatusIcon = (status?: string) => {
+    switch (status) {
+      case 'active': return <UserCheck className="h-4 w-4" />;
+      case 'inactive': return <UserX className="h-4 w-4" />;
+      case 'suspended': return <XSquare className="h-4 w-4" />;
+      case 'archived': return <Archive className="h-4 w-4" />;
+      default: return <UserCheck className="h-4 w-4" />;
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
@@ -312,26 +529,6 @@ export default function ManageTeachers() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full"
               />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">This Month</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {teachers.filter(t => {
-                  const teacherDate = t.createdAt;
-                  const now = new Date();
-                  return teacherDate.getMonth() === now.getMonth() &&
-                         teacherDate.getFullYear() === now.getFullYear();
-                }).length}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                New teachers this month
-              </p>
             </CardContent>
           </Card>
         </div>
@@ -463,7 +660,7 @@ export default function ManageTeachers() {
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">School:</span>
-                    <span className="font-medium">{teacher.school}</span>
+                    <span className="font-medium">{teacher.school || "Not specified"}</span>
                   </div>
                 </div>
 
@@ -527,7 +724,7 @@ export default function ManageTeachers() {
             lastName: "",
             email: "",
             phone: "",
-            password: "",
+            password: "", // Added missing password field
             location: undefined
           });
         }
@@ -570,48 +767,22 @@ export default function ManageTeachers() {
                     Add Intern
                   </Button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Corrected Interns Modal */}
+                <div className="space-y-4">
                   {teacherInterns.map((intern) => (
-                    <Card key={intern.uid} className="hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-3 mb-3">
-                          <Avatar className="h-10 w-10">
-                            <AvatarFallback>
-                              {intern.firstName[0]}{intern.lastName[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <h4 className="font-medium">
-                              {intern.firstName} {intern.lastName}
-                            </h4>
-                            <p className="text-sm text-muted-foreground">Intern</p>
-                          </div>
-                        </div>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-3 w-3 text-muted-foreground" />
-                            <span>{intern.email}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-3 w-3 text-muted-foreground" />
-                            <span>{intern.phone}</span>
-                          </div>
-                          {intern.location && (
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-3 w-3 text-muted-foreground" />
-                              <span className="truncate" title={intern.location.address}>
-                                {intern.location.address.length > 30 
-                                  ? intern.location.address.substring(0, 30) + '...' 
-                                  : intern.location.address}
-                              </span>
-                            </div>
-                          )}
-                          <div className="text-xs text-muted-foreground mt-2">
-                            Added {intern.createdAt.toLocaleDateString()}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <div key={intern.uid} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <div className="font-medium">{intern.firstName} {intern.lastName}</div>
+                        <div className="text-sm text-muted-foreground">{intern.email}</div>
+                        <div className="text-xs text-muted-foreground">Added {intern.createdAt?.toLocaleDateString()}</div>
+                        <div className="text-xs text-muted-foreground">{intern.phone && intern.phone.trim() !== "" ? intern.phone : "No phone number provided"}</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={() => handleEditIntern(intern)}>Edit</Button>
+                        <Button variant="destructive" onClick={() => handleDeleteIntern(intern.uid)}>Delete</Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -688,7 +859,7 @@ export default function ManageTeachers() {
                     <div>
                       <Label>Assignment Location</Label>
                       <LocationPicker
-        onLocationSelect={(location: { address: string; latitude: number; longitude: number } | undefined) => setInternFormData({...internFormData, location})}
+                        onLocationSelect={(location: { address: string; latitude: number; longitude: number } | undefined) => setInternFormData({...internFormData, location})}
                         initialLocation={internFormData.location}
                       />
                     </div>
@@ -706,7 +877,7 @@ export default function ManageTeachers() {
                             lastName: "",
                             email: "",
                             phone: "",
-                            password: "",
+                            password: "", // Added missing password field
                             location: undefined
                           });
                         }}

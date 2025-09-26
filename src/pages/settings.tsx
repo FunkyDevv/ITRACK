@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/hooks/useTheme";
 import { useToast } from "@/hooks/use-toast";
 import {
   Settings as SettingsIcon,
@@ -16,7 +17,6 @@ import {
   Shield,
   Clock,
   Save,
-  Trash2,
   Database,
   Users,
   RefreshCw,
@@ -36,6 +36,7 @@ import { getFirestore, doc, onSnapshot } from "firebase/firestore";
 
 export default function SettingsPage() {
   const { userProfile, isLoading } = useAuth();
+  const { isDarkMode, toggleTheme } = useTheme();
   const { toast } = useToast();
 
   // System monitoring states
@@ -80,29 +81,12 @@ export default function SettingsPage() {
     };
   }, [userProfile?.role]);
 
-  // Theme state
-  const [isDarkMode, setIsDarkMode] = React.useState(() => {
-    if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('theme');
-      if (savedTheme) {
-        return savedTheme === 'dark';
-      }
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
-
-  // Initialize and update theme
-  React.useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDarkMode);
-    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-  }, [isDarkMode]);
-  
   // State for profile editing with proper initialization from userProfile
   const [firstName, setFirstName] = React.useState(userProfile?.firstName ?? "");
   const [lastName, setLastName] = React.useState(userProfile?.lastName ?? "");
   const [email, setEmail] = React.useState(userProfile?.email ?? "");
   const [company, setCompany] = React.useState(userProfile?.company ?? "");
+  const [phone, setPhone] = React.useState(userProfile?.phone ?? "");
   const [scheduledTimeIn, setScheduledTimeIn] = React.useState(userProfile?.scheduledTimeIn ?? "09:00");
   const [scheduledTimeOut, setScheduledTimeOut] = React.useState(userProfile?.scheduledTimeOut ?? "17:00");
   
@@ -124,6 +108,7 @@ export default function SettingsPage() {
       setLastName(userProfile.lastName ?? "");
       setEmail(userProfile.email ?? "");
       setCompany(userProfile.company ?? "");
+      setPhone(userProfile.phone ?? "");
       setScheduledTimeIn(userProfile.scheduledTimeIn ?? "09:00");
       setScheduledTimeOut(userProfile.scheduledTimeOut ?? "17:00");
     }
@@ -158,6 +143,7 @@ export default function SettingsPage() {
         lastName,
         email,
         company,
+        phone,
         scheduledTimeIn,
         scheduledTimeOut
       };
@@ -222,6 +208,17 @@ export default function SettingsPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  className="bg-background dark:bg-card"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(123) 456-7890"
                   className="bg-background dark:bg-card"
                 />
               </div>
@@ -347,7 +344,7 @@ export default function SettingsPage() {
               <Switch
                 id="darkMode"
                 checked={isDarkMode}
-                onCheckedChange={setIsDarkMode}
+                onCheckedChange={toggleTheme}
               />
             </div>
           </CardContent>
@@ -390,35 +387,119 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+              
+              <Separator />
+              
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium">Storage & Integration Tests</h4>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const { testBytescaleUpload } = await import("@/lib/migration");
+                        const result = await testBytescaleUpload();
+                        if (result.success) {
+                          toast({
+                            title: "Bytescale Test Successful",
+                            description: `File uploaded successfully: ${result.result?.fileUrl}`,
+                          });
+                        } else {
+                          throw result.error;
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Bytescale Test Failed",
+                          description: error instanceof Error ? error.message : "Unknown error",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    Test Bytescale Upload
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const { migrateUsersToIncludePhone } = await import("@/lib/migration");
+                        const result = await migrateUsersToIncludePhone();
+                        if (result.success) {
+                          toast({
+                            title: "Phone Migration Successful",
+                            description: `Updated ${result.updatedCount} user records with phone fields`,
+                          });
+                        } else {
+                          throw result.error;
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Phone Migration Failed",
+                          description: error instanceof Error ? error.message : "Unknown error",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    Migrate Phone Numbers
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Danger Zone */}
-        <Card className="border-destructive dark:border-destructive/50 bg-card">
+        {/* Change Password Settings */}
+        <Card className="border bg-card">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="h-5 w-5" />
-              Danger Zone
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Change Password
             </CardTitle>
             <CardDescription>
-              Irreversible and destructive actions
+              Update your account password securely
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between p-4 border border-destructive rounded-lg">
-              <div>
-                <h4 className="font-medium">Delete Account</h4>
-                <p className="text-sm text-muted-foreground">
-                  Permanently delete your account and all associated data
-                </p>
-              </div>
-              <Button variant="destructive" size="sm">
-                Delete Account
-              </Button>
-            </div>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="secondary">Change Password</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Change Password</DialogTitle>
+                  <DialogDescription>Enter your new password below.</DialogDescription>
+                </DialogHeader>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const form = e.target as HTMLFormElement;
+                    const newPassword = (form.querySelector('#newPassword') as HTMLInputElement)?.value;
+                    try {
+                      const { getAuth, updatePassword } = await import("firebase/auth");
+                      const auth = getAuth();
+                      if (auth.currentUser) {
+                        await updatePassword(auth.currentUser, newPassword);
+                        toast({ title: "Password updated successfully!" });
+                      } else {
+                        toast({ title: "No authenticated user found.", variant: "destructive" });
+                      }
+                    } catch (err) {
+                      toast({ title: "Failed to update password.", variant: "destructive" });
+                    }
+                  }}
+                >
+                  <Label htmlFor="newPassword">New Password</Label>
+                  <Input id="newPassword" name="newPassword" type="password" required className="mb-4" />
+                  <Button type="submit" variant="secondary">Update Password</Button>
+                </form>
+              </DialogContent>
+            </Dialog>
           </CardContent>
         </Card>
+
       </div>
       </div>
     </div>

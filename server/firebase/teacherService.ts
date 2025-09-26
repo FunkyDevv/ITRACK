@@ -1,4 +1,4 @@
-import { adminAuth, adminDb } from './admin';
+import { adminAuth, adminDb } from './admin.js';
 
 export interface TeacherData {
   email: string;
@@ -19,6 +19,7 @@ export interface UserProfile {
   teacherId?: string;
   scheduledTimeIn?: string;
   scheduledTimeOut?: string;
+  phone?: string;
 }
 
 export interface TeacherProfile extends TeacherData {
@@ -58,7 +59,8 @@ export const createTeacherAccount = async (
       lastName: teacherData.lastName,
       role: "teacher",
       company: teacherData.school || "Education",
-      teacherId: userRecord.uid
+      teacherId: userRecord.uid,
+      phone: teacherData.phone
     };
 
     await adminDb.collection('users').doc(userRecord.uid).set(userProfile);
@@ -79,7 +81,7 @@ export const getTeacherStats = async () => {
 
     // Get departments
     const departments = new Set();
-    teachersSnapshot.forEach(doc => {
+    teachersSnapshot.forEach((doc: any) => {
       departments.add(doc.data().department);
     });
 
@@ -97,7 +99,7 @@ export const getTeacherStats = async () => {
       .limit(5)
       .get();
 
-    const recentTeachers = recentQuery.docs.map(doc => doc.data());
+    const recentTeachers = recentQuery.docs.map((doc: any) => doc.data());
 
     return {
       totalTeachers,

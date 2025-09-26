@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   role: varchar("role", { enum: ["supervisor", "teacher", "intern"] }).notNull().default("intern"),
   company: varchar("company"),
+  phone: varchar("phone"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -48,6 +49,7 @@ export const upsertUserSchema = createInsertSchema(users).pick({
   firstName: true,
   lastName: true,
   profileImageUrl: true,
+  phone: true,
 });
 
 export const signupSchema = z.object({
@@ -55,6 +57,7 @@ export const signupSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address"),
   company: z.string().min(1, "Company is required"),
+  phone: z.string().min(10, "Phone number must be at least 10 digits"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {

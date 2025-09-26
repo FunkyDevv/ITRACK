@@ -188,7 +188,7 @@ export function Sidebar({ className, collapsed = false, onToggle, onNavigate, cu
                 <Button
                   variant={
                     currentPage === item.href || 
-                    (item.href === "/manage-interns" && currentPage?.includes("/manage-teachers/") && currentPage?.includes("/interns/")) ||
+                    (item.href === "/manage-interns" && (currentPage === "/manage-interns" || (currentPage?.includes("/manage-teachers/") && currentPage?.includes("/interns/")))) ||
                     (item.href === "/manage-teachers" && currentPage?.startsWith("/manage-teachers/") && !currentPage?.includes("/interns/"))
                     ? "secondary" : "ghost"
                   }
@@ -196,7 +196,7 @@ export function Sidebar({ className, collapsed = false, onToggle, onNavigate, cu
                     "w-full justify-start",
                     collapsed ? "px-2" : "px-3",
                     (currentPage === item.href || 
-                     (item.href === "/manage-interns" && currentPage?.includes("/manage-teachers/") && currentPage?.includes("/interns/")) ||
+                     (item.href === "/manage-interns" && (currentPage === "/manage-interns" || (currentPage?.includes("/manage-teachers/") && currentPage?.includes("/interns/")))) ||
                      (item.href === "/manage-teachers" && currentPage?.startsWith("/manage-teachers/") && !currentPage?.includes("/interns/"))
                     ) && "bg-primary/10 text-primary hover:bg-primary/20"
                   )}

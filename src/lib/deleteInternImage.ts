@@ -1,9 +1,9 @@
-import { getStorage, ref, deleteObject } from "firebase/storage";
+import { deleteFromBytescale, extractFileIdFromUrl } from "./bytescale";
 import { db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
 
 /**
- * Deletes the intern's uploaded image from Firebase Storage after attendance approval.
+ * Deletes the intern's uploaded image from Bytescale after attendance approval.
  * @param attendanceId The ID of the attendance record.
  * @returns Promise<void>
  */
@@ -15,14 +15,12 @@ export async function deleteInternImageAfterApproval(attendanceId: string): Prom
   const photoUrl = attendanceData.photoUrl;
   if (!photoUrl) return;
 
-  // Get storage reference from photoUrl
-  const storage = getStorage();
-  // Extract the path from the photoUrl
-  // photoUrl is usually like: https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?...
-  const match = photoUrl.match(/\/o\/(.*)\?/);
-  const imagePath = match ? decodeURIComponent(match[1]) : null;
-  if (!imagePath) return;
+  // Extract file ID from Bytescale URL
+  const fileId = extractFileIdFromUrl(photoUrl);
+  if (!fileId) {
+    console.warn("⚠️ Could not extract file ID from URL:", photoUrl);
+    return;
+  }
 
-  const imageRef = ref(storage, imagePath);
-  await deleteObject(imageRef);
+  await deleteFromBytescale(fileId);
 }

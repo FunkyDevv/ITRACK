@@ -3,7 +3,7 @@ import {
   type User,
   type UpsertUser,
   type InsertUser,
-} from "@shared/schema";
+} from "../shared/schema.js";
 
 // Interface for storage operations
 export interface IStorage {

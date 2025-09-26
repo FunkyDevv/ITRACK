@@ -43,8 +43,21 @@ export default function MyInterns() {
       
       try {
         const teacherInterns = await getTeacherInterns(userProfile.uid);
-        setInterns(teacherInterns);
         console.log("📚 My interns loaded:", teacherInterns);
+        
+        // Debug log each intern's data
+        teacherInterns.forEach((intern, index) => {
+          console.log(`� Intern ${index + 1}:`, {
+            name: `${intern.firstName} ${intern.lastName}`,
+            email: intern.email,
+            phone: intern.phone,
+            location: intern.location,
+            createdAt: intern.createdAt,
+            allFields: Object.keys(intern)
+          });
+        });
+        
+        setInterns(teacherInterns);
       } catch (error) {
         console.error("❌ Error loading interns:", error);
       } finally {
@@ -173,7 +186,7 @@ export default function MyInterns() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Phone className="h-3 w-3 text-muted-foreground" />
-                        {intern.phone}
+                        {intern.phone || 'Not provided'}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -191,7 +204,15 @@ export default function MyInterns() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Calendar className="h-3 w-3 text-muted-foreground" />
-                        {intern.createdAt ? new Date(intern.createdAt).toLocaleDateString() : 'Unknown'}
+                        {(() => {
+                          if (!intern.createdAt) return 'Not available';
+                          try {
+                            const date = intern.createdAt instanceof Date ? intern.createdAt : new Date(intern.createdAt);
+                            return isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+                          } catch {
+                            return 'Not available';
+                          }
+                        })()}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
@@ -274,7 +295,16 @@ export default function MyInterns() {
                       <span className="text-sm font-medium">Phone Number</span>
                     </div>
                     <p className="text-sm text-muted-foreground ml-6">
-                      {selectedIntern.phone}
+                      {selectedIntern.phone ? (
+                        <a 
+                          href={`tel:${selectedIntern.phone}`}
+                          className="hover:text-primary hover:underline transition-colors"
+                        >
+                          {selectedIntern.phone}
+                        </a>
+                      ) : (
+                        'Not provided'
+                      )}
                     </p>
                   </div>
                   
@@ -284,7 +314,15 @@ export default function MyInterns() {
                       <span className="text-sm font-medium">Join Date</span>
                     </div>
                     <p className="text-sm text-muted-foreground ml-6">
-                      {selectedIntern.createdAt ? new Date(selectedIntern.createdAt).toLocaleDateString() : 'Unknown'}
+                      {(() => {
+                        if (!selectedIntern.createdAt) return 'Not available';
+                        try {
+                          const date = selectedIntern.createdAt instanceof Date ? selectedIntern.createdAt : new Date(selectedIntern.createdAt);
+                          return isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+                        } catch {
+                          return 'Not available';
+                        }
+                      })()}
                     </p>
                   </div>
                 </div>

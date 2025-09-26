@@ -17,6 +17,7 @@ import {
   AttendanceRecord,
   InternProfile
 } from "@/lib/firebase";
+import { uploadDataUrlToBytescale } from "@/lib/bytescale";
 import { onSnapshot, collection, query, where, orderBy, Timestamp, addDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import * as Bytescale from "@bytescale/upload-widget";
@@ -54,6 +55,7 @@ export default function InternDashboard() {
   } | null>(null);
   const [photoUrl, setPhotoUrl] = React.useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = React.useState(false);
+  const [uploadProgress, setUploadProgress] = React.useState<string>('');
 
   // Request location permission and get current location
   React.useEffect(() => {
@@ -390,79 +392,110 @@ export default function InternDashboard() {
         return;
       }
 
-      if (!internProfile?.teacherId) {
+      // Upload photo to Bytescale
+      setIsUploadingPhoto(true);
+      setUploadProgress('Compressing and uploading photo...');
+      
+      try {
+        const photoUpload = await uploadDataUrlToBytescale(photoUrl, `timein-${userProfile.uid}-${Date.now()}.jpg`);
+        const uploadedPhotoUrl = photoUpload.fileUrl;
+        setUploadProgress('Photo uploaded successfully');
+        setIsUploadingPhoto(false);
+
+        // Ensure we don't store base64 data in Firebase (only real URLs or placeholders)
+        if (uploadedPhotoUrl.startsWith('data:')) {
+          throw new Error('Image upload failed - cannot store large images directly. Please try again with a smaller photo or check your internet connection.');
+        }
+
+        // Show different messages based on upload result
+        if (uploadedPhotoUrl.includes('placeholder')) {
+          console.warn('⚠️ Using placeholder image for time-in due to upload failure');
+          setUploadProgress('Upload failed - using placeholder image');
+        } else if (uploadedPhotoUrl.includes('firebasestorage')) {
+          console.log('✅ Using Firebase Storage for time-in photo');
+          setUploadProgress('Photo uploaded via Firebase Storage');
+        } else {
+          setUploadProgress('Photo uploaded successfully via Bytescale');
+        }
+
+        if (!internProfile?.teacherId) {
+          toast({
+            title: "Error",
+            description: "Teacher assignment not found",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Check if intern is late
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const scheduledTimeIn = internProfile.scheduledTimeIn;
+        
+        let isLate = false;
+        if (scheduledTimeIn) {
+          // Convert both times to minutes for proper comparison
+          const [currentHour, currentMin] = currentTime.split(':').map(Number);
+          const [scheduledHour, scheduledMin] = scheduledTimeIn.split(':').map(Number);
+          
+          const currentTotalMinutes = currentHour * 60 + currentMin;
+          const scheduledTotalMinutes = scheduledHour * 60 + scheduledMin;
+          
+          isLate = currentTotalMinutes > scheduledTotalMinutes;
+          
+          console.log("⏰ Late check:", {
+            current: currentTime,
+            scheduled: scheduledTimeIn,
+            currentMinutes: currentTotalMinutes,
+            scheduledMinutes: scheduledTotalMinutes,
+            isLate
+          });
+        }
+
+        const newAttendance = await createAttendanceRecord({
+          internId: userProfile.uid,
+          teacherId: internProfile.teacherId,
+          clockIn: Timestamp.fromDate(new Date()),
+          location: currentLocation.address,
+          coordinates: {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude
+          },
+          photoUrl: uploadedPhotoUrl,
+          status: "pending",
+          isLate: isLate || false
+        });
+
+        // Set as pending attendance, not current
+        setPendingAttendance({
+          id: newAttendance,
+          internId: userProfile.uid,
+          teacherId: internProfile.teacherId,
+          clockIn: Timestamp.fromDate(new Date()),
+          location: currentLocation.address,
+          coordinates: {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude
+          },
+          photoUrl: uploadedPhotoUrl,
+          status: "pending",
+          createdAt: Timestamp.fromDate(new Date()),
+          clockOut: undefined
+        } as AttendanceRecord);
+        
+        // Clear photo after successful submission
+        setPhotoUrl(null);
+
         toast({
-          title: "Error",
-          description: "Teacher assignment not found",
-          variant: "destructive",
+          title: "Time-In Successful",
+          description: "Your attendance has been recorded and is pending approval",
         });
-        return;
+
+      } catch (uploadError) {
+        setIsUploadingPhoto(false);
+        console.error("❌ Error during photo upload:", uploadError);
+        throw uploadError; // Re-throw to be caught by outer catch
       }
-
-      // Check if intern is late
-      const now = new Date();
-      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      const scheduledTimeIn = internProfile.scheduledTimeIn;
-      
-      let isLate = false;
-      if (scheduledTimeIn) {
-        // Convert both times to minutes for proper comparison
-        const [currentHour, currentMin] = currentTime.split(':').map(Number);
-        const [scheduledHour, scheduledMin] = scheduledTimeIn.split(':').map(Number);
-        
-        const currentTotalMinutes = currentHour * 60 + currentMin;
-        const scheduledTotalMinutes = scheduledHour * 60 + scheduledMin;
-        
-        isLate = currentTotalMinutes > scheduledTotalMinutes;
-        
-        console.log("⏰ Late check:", {
-          current: currentTime,
-          scheduled: scheduledTimeIn,
-          currentMinutes: currentTotalMinutes,
-          scheduledMinutes: scheduledTotalMinutes,
-          isLate
-        });
-      }
-
-      const newAttendance = await createAttendanceRecord({
-        internId: userProfile.uid,
-        teacherId: internProfile.teacherId,
-        clockIn: Timestamp.fromDate(new Date()),
-        location: currentLocation.address,
-        coordinates: {
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude
-        },
-        photoUrl: photoUrl,
-        status: "pending",
-        isLate: isLate || false
-      });
-
-      // Set as pending attendance, not current
-      setPendingAttendance({
-        id: newAttendance,
-        internId: userProfile.uid,
-        teacherId: internProfile.teacherId,
-        clockIn: Timestamp.fromDate(new Date()),
-        location: currentLocation.address,
-        coordinates: {
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude
-        },
-        photoUrl: photoUrl,
-        status: "pending",
-        createdAt: Timestamp.fromDate(new Date()),
-        clockOut: undefined
-      } as AttendanceRecord);
-      
-      // Clear photo after successful submission
-      setPhotoUrl(null);
-
-      toast({
-        title: "Time-In Successful",
-        description: "Your attendance has been recorded and is pending approval",
-      });
-
     } catch (error) {
       console.error("❌ Error during time-in:", error);
       toast({
@@ -521,27 +554,66 @@ export default function InternDashboard() {
     setIsCheckingOut(true);
 
     try {
-      await updateAttendanceTimeOut(currentAttendance.id!, new Date(), isEarly || false);
-      
-      console.log("🔄 Time out complete, clearing current session");
-      setCurrentAttendance(null);
-      
-      // Refresh history immediately after timeout
-      console.log("📜 Refreshing attendance history after timeout...");
-      const updatedHistory = await getInternAttendanceRecords(userProfile.uid);
-      console.log("📜 Updated history after timeout (should include all records):", updatedHistory.length, "records");
-      setAttendanceHistory(updatedHistory);
+      // Require photo for time out
+      if (!photoUrl) {
+        toast({
+          title: "Photo Required",
+          description: "Please upload a photo before checking out",
+          variant: "destructive",
+        });
+        setIsCheckingOut(false);
+        return;
+      }
 
-      toast({
-        title: "Time-Out Successful",
-        description: "Your time-out has been recorded",
-      });
+      setIsUploadingPhoto(true);
+      setUploadProgress('Compressing and uploading photo...');
+      
+      try {
+        // Upload photo to Bytescale
+        const photoUpload = await uploadDataUrlToBytescale(photoUrl, `timeout-${userProfile.uid}-${Date.now()}.jpg`);
+        const timeOutPhotoUrl = photoUpload.fileUrl;
+        setUploadProgress('Photo uploaded successfully');
+        setIsUploadingPhoto(false);
 
+        // Ensure we don't store base64 data in Firebase (only real URLs or placeholders)
+        if (timeOutPhotoUrl.startsWith('data:')) {
+          throw new Error('Image upload failed - cannot store large images directly. Please try again with a smaller photo or check your internet connection.');
+        }
+
+        // Show different messages based on upload result
+        if (timeOutPhotoUrl.includes('placeholder')) {
+          console.warn('⚠️ Using placeholder image for time-out due to upload failure');
+          setUploadProgress('Upload failed - using placeholder image');
+        } else if (timeOutPhotoUrl.includes('firebasestorage')) {
+          console.log('✅ Using Firebase Storage for time-out photo');
+          setUploadProgress('Photo uploaded via Firebase Storage');
+        } else {
+          setUploadProgress('Photo uploaded successfully via Bytescale');
+        }
+
+        // Update attendance with time-out and photo, set status to pending for teacher approval
+        await updateAttendanceTimeOut(currentAttendance.id!, new Date(), timeOutPhotoUrl, isEarly || false);
+
+        setCurrentAttendance(null);
+        const updatedHistory = await getInternAttendanceRecords(userProfile.uid);
+        setAttendanceHistory(updatedHistory);
+
+        toast({
+          title: "Time-Out Successful",
+          description: "Your time-out has been recorded and sent for teacher approval",
+        });
+
+      } catch (uploadError) {
+        setIsUploadingPhoto(false);
+        console.error("❌ Error during photo upload:", uploadError);
+        throw uploadError; // Re-throw to be caught by outer catch
+      }
     } catch (error) {
+      setIsUploadingPhoto(false);
       console.error("❌ Error during time-out:", error);
       toast({
         title: "Time-Out Failed",
-        description: "Failed to record your time-out. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to record your time-out. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -636,6 +708,30 @@ export default function InternDashboard() {
                     )}
                   </Button>
                 </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-4">
+                <Button
+                  onClick={openCamera}
+                  disabled={isCameraOpen}
+                  className="gap-2"
+                >
+                  <Camera className="h-4 w-4" />
+                  Take Photo
+                </Button>
+                {photoUrl && (
+                  <div className="flex flex-col items-center gap-2">
+                    <img
+                      src={photoUrl}
+                      alt="Captured photo"
+                      className="w-24 h-24 rounded-lg object-cover border"
+                    />
+                    <span className="text-sm text-green-600 flex items-center gap-1">
+                      <CheckCircle className="h-4 w-4" />
+                      Photo uploaded and ready
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           ) : pendingAttendance ? (
@@ -801,176 +897,6 @@ export default function InternDashboard() {
         </CardContent>
       </Card>
 
-      {/* Attendance History */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Attendance History</CardTitle>
-          <CardDescription>
-            Your recent time-in/out records and approval status
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            {attendanceHistory.map((record) => (
-              <div key={record.id} className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2 border-b">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    {record.createdAt.toDate().toLocaleDateString()}
-                  </h4>
-                </div>
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <tbody>
-                      {record.clockIn && (
-                        <tr className="border-b">
-                          <td className="px-4 py-3 font-medium text-sm w-24">
-                            <div className="flex items-center gap-2">
-                              <LogIn className="h-4 w-4 text-green-600" />
-                              Time In
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {record.clockIn.toDate().toLocaleTimeString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {/* Status badges removed */}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            {record.photoUrl && record.status !== 'approved' && (
-                              <img
-                                src={record.photoUrl}
-                                alt="Time-in photo"
-                                className="w-8 h-8 rounded object-cover border ml-auto"
-                              />
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                      
-                      {record.clockOut && (
-                        <tr className="border-b">
-                          <td className="px-4 py-3 font-medium text-sm w-24">
-                            <div className="flex items-center gap-2">
-                              <LogOut className="h-4 w-4 text-red-600" />
-                              Time Out
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {record.clockOut.toDate().toLocaleTimeString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {record.isEarly && (
-                              <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">
-                                EARLY
-                              </Badge>
-                            )}
-                          </td>
-                          <td className="px-4 py-3"></td>
-                        </tr>
-                      )}
-                      
-                      {record.location && (
-                        <tr className="border-b">
-                          <td className="px-4 py-3 font-medium text-sm">
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-blue-600" />
-                              Location
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm" colSpan={2}>
-                            <span className="text-muted-foreground">
-                              {typeof record.location === 'string' 
-                                ? record.location 
-                                : (record.location as any).address || 'Location unavailable'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3"></td>
-                        </tr>
-                      )}
-                      
-                      <tr>
-                        <td className="px-4 py-3 font-medium text-sm">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle className="h-4 w-4 text-blue-600" />
-                            Status
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm" colSpan={3}>
-                          {getStatusBadge(record.status)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-
-            {attendanceHistory.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No attendance records yet</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {attendanceHistory.length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Approved sessions
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
-              {pendingAttendance ? 1 : 0}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Awaiting approval
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Hours</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {attendanceHistory
-                .filter(r => r.clockIn && r.clockOut)
-                .reduce((total, r) => {
-                  const hours = (r.clockOut!.toDate().getTime() - r.clockIn!.toDate().getTime()) / (1000 * 60 * 60);
-                  return total + hours;
-                }, 0)
-                .toFixed(1)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Hours worked
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Camera Modal */}
       <Dialog open={isCameraOpen} onOpenChange={setIsCameraOpen}>
         <DialogContent className="sm:max-w-md">
@@ -1033,6 +959,15 @@ export default function InternDashboard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Interns for Teacher Modal */}
+      <div>
+        <div>
+          <span>{internProfile?.firstName} {internProfile?.lastName}</span>
+          <span>{internProfile?.email}</span>
+          <span>Added {internProfile?.createdAt?.toString()}</span>
+        </div>
+      </div>
     </div>
   );
 }

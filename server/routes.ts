@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { createTeacherAccount, getTeacherStats, type TeacherData } from "./firebase/teacherService";
-import { createInternAccount, getInternStats, type InternData } from "./firebase/internService";
+import { createTeacherAccount, getTeacherStats, type TeacherData } from "./firebase/teacherService.js";
+import { createInternAccount, getInternStats, type InternData } from "./firebase/internService.js";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Firebase handles authentication on the client side
@@ -47,8 +47,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { internData, supervisorUid }: { internData: InternData; supervisorUid: string } = req.body;
 
+      console.log('📱 API received intern data:', JSON.stringify(internData));
+      console.log('📱 Phone field in request:', internData.phone);
+
       if (!internData || !supervisorUid) {
         return res.status(400).json({ message: 'Missing required fields' });
+      }
+
+      // Ensure phone field is present before passing to createInternAccount
+      if (internData.phone === undefined) {
+        internData.phone = "";
+        console.log('📱 Added empty phone field to internData');
       }
 
       const internProfile = await createInternAccount(internData, supervisorUid);

@@ -5,14 +5,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, orderBy, updateDoc, doc } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, updateDoc, doc, onSnapshot, QuerySnapshot, DocumentData } from "firebase/firestore";
 import { FileText, Check, X, Download } from "lucide-react";
 import { jsPDF } from "jspdf";
+import { useState } from "react";
 
+// Updated Report interface to include "Rejected" status
 interface Report {
   id: string;
   studentName: string;
-  status: "Pending" | "Approved" | "Completed";
+  status: "Pending" | "Approved" | "Completed" | "Rejected" | "submitted";
   submittedDate: Date;
   totalHours: number;
   grade: string;
@@ -22,43 +24,88 @@ export default function DTRReportsPage() {
   const { userProfile } = useAuth();
   const [reports, setReports] = React.useState<Report[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [filter, setFilter] = useState("Pending");
+  const [debugMode, setDebugMode] = React.useState(false);
+  const [allReports, setAllReports] = React.useState<Report[]>([]);
 
-  // Fetch reports
+  // Real-time subscribe to DTR reports for supervisor
   React.useEffect(() => {
-    const fetchReports = async () => {
-      if (!userProfile?.uid) return;
+    if (!userProfile?.uid) return;
+    setIsLoading(true);
+    console.log("🔍 Setting up DTR reports subscription for supervisor:", userProfile.uid);
 
-      try {
-        setIsLoading(true);
-        const reportsRef = collection(db, "dtrReports");
-        const q = query(
-          reportsRef,
-          where("supervisorId", "==", userProfile.uid),
-          orderBy("submittedDate", "desc")
-        );
-        
-        const snapshot = await getDocs(q);
-        const reportData = snapshot.docs.map((doc) => ({
+    const reportsRef = collection(db, "dtrReports");
+    const q = query(
+      reportsRef,
+      where("supervisorId", "==", userProfile.uid)
+    );
+
+    console.log("📋 Query created for supervisorId:", userProfile.uid);
+
+    const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
+      console.log("📊 DTR reports snapshot received, docs count:", snapshot.docs.length);
+      const reportData = snapshot.docs.map((doc: DocumentData) => {
+        const data = doc.data();
+        console.log("📄 DTR report:", doc.id, "data:", data);
+        return {
           id: doc.id,
-          ...doc.data(),
-          submittedDate: doc.data().submittedDate?.toDate() || new Date(),
-        })) as Report[];
+          ...data,
+          submittedDate: data.submittedAt?.toDate() || data.submittedDate?.toDate() || new Date(),
+          totalHours: data.totalHours || 0,
+          grade: data.grade || "",
+        };
+      }) as Report[];
+      setReports(reportData);
+      setIsLoading(false);
+    }, (error: any) => {
+      console.error("❌ Error fetching DTR reports:", error);
+      // If filtering by supervisorId fails, try to get all reports for debugging
+      console.log("🔄 Trying to fetch all DTR reports for debugging...");
+      const allReportsQuery = query(collection(db, "dtrReports"));
+      getDocs(allReportsQuery).then(allSnapshot => {
+        console.log("🔧 All DTR reports in database:", allSnapshot.docs.length);
+        allSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          console.log("🔧 DTR:", doc.id, "supervisorId:", data.supervisorId, "status:", data.status, "studentName:", data.studentName);
+        });
+      });
+      setIsLoading(false);
+    });
 
-        setReports(reportData);
-      } catch (error) {
-        console.error("Error fetching DTR reports:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    // Also fetch ALL DTR reports for debugging
+    const debugUnsubscribe = onSnapshot(collection(db, "dtrReports"), (allSnapshot) => {
+      console.log("🔧 DEBUG: All DTR reports in database:", allSnapshot.docs.length);
+      const allReportData = allSnapshot.docs.map((doc: DocumentData) => ({
+        id: doc.id,
+        ...doc.data(),
+        submittedDate: doc.data().submittedAt?.toDate() || doc.data().submittedDate?.toDate() || new Date(),
+        totalHours: doc.data().totalHours || 0,
+        grade: doc.data().grade || "",
+      })) as Report[];
+      setAllReports(allReportData);
+      allSnapshot.docs.forEach((doc) => {
+        console.log("🔧 DEBUG DTR:", doc.id, "supervisorId:", doc.data().supervisorId, "status:", doc.data().status);
+      });
+    });
+
+    return () => {
+      unsubscribe();
+      debugUnsubscribe();
     };
-
-    fetchReports();
-  }, [userProfile]);
+  }, [userProfile?.uid]);
 
   // Calculate summary statistics
-  const totalReports = reports.length;
-  const pendingReports = reports.filter(r => r.status === "Pending").length;
-  const completedReports = reports.filter(r => r.status === "Completed").length;
+  const displayReports = debugMode ? allReports : reports;
+  const totalReports = displayReports.length;
+  // Treat 'submitted' and 'Pending' as pending for supervisor
+  const pendingReports = displayReports.filter(r => r.status === "Pending" || r.status === "submitted").length;
+  const completedReports = displayReports.filter(r => r.status === "Completed" || r.status === "Approved").length;
+
+  const filteredReports = (debugMode ? allReports : reports).filter((report) => {
+    if (filter === "Pending") return report.status === "Pending" || report.status === "submitted";
+    if (filter === "Completed") return report.status === "Completed" || report.status === "Approved";
+    return true; // Total Reports
+  });
 
   // Handle report approval
   const handleApprove = async (reportId: string) => {
@@ -74,6 +121,22 @@ export default function DTRReportsPage() {
       ));
     } catch (error) {
       console.error("Error approving report:", error);
+    }
+  };
+
+  const handleReject = async (reportId: string) => {
+    try {
+      await updateDoc(doc(db, "dtrReports", reportId), {
+        status: "Rejected"
+      });
+      
+      setReports(reports.map(report => 
+        report.id === reportId 
+          ? { ...report, status: "Rejected" } 
+          : report
+      ));
+    } catch (error) {
+      console.error("Error rejecting report:", error);
     }
   };
 
@@ -103,7 +166,17 @@ export default function DTRReportsPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <h1 className="text-3xl font-bold mb-6">DTR Reports</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">DTR Reports</h1>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setDebugMode(!debugMode)}
+          className="text-xs"
+        >
+          {debugMode ? "Show Filtered" : "Debug: Show All"}
+        </Button>
+      </div>
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -141,6 +214,28 @@ export default function DTRReportsPage() {
       {/* Reports Table */}
       <Card>
         <CardContent className="p-0">
+          <div className="flex justify-end p-4">
+            <Button 
+              variant={filter === "Pending" ? "default" : "outline"} 
+              onClick={() => setFilter("Pending")}
+              className="mr-2"
+            >
+              Pending
+            </Button>
+            <Button 
+              variant={filter === "Completed" ? "default" : "outline"} 
+              onClick={() => setFilter("Completed")}
+              className="mr-2"
+            >
+              Completed
+            </Button>
+            <Button 
+              variant={filter === "Total Reports" ? "default" : "outline"} 
+              onClick={() => setFilter("Total Reports")}
+            >
+              Total Reports
+            </Button>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -153,7 +248,7 @@ export default function DTRReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {reports.map((report) => (
+              {filteredReports.map((report) => (
                 <TableRow key={report.id}>
                   <TableCell>{report.studentName}</TableCell>
                   <TableCell>
@@ -171,7 +266,7 @@ export default function DTRReportsPage() {
                   <TableCell>{report.grade}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      {report.status === "Pending" && (
+                      {(report.status === "Pending" || report.status === "submitted") && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -179,6 +274,16 @@ export default function DTRReportsPage() {
                         >
                           <Check className="h-4 w-4 mr-1" />
                           Approve
+                        </Button>
+                      )}
+                      {(report.status === "Pending" || report.status === "submitted") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleReject(report.id)}
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Reject
                         </Button>
                       )}
                       <Button
@@ -193,7 +298,7 @@ export default function DTRReportsPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {reports.length === 0 && (
+              {filteredReports.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8">
                     No DTR reports found

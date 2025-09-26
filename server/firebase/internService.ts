@@ -1,4 +1,4 @@
-import { adminAuth, adminDb } from './admin';
+import { adminAuth, adminDb } from './admin.js';
 
 export interface InternData {
   email: string;
@@ -26,6 +26,7 @@ export interface UserProfile {
   teacherId?: string;
   scheduledTimeIn?: string;
   scheduledTimeOut?: string;
+  phone?: string;
 }
 
 export interface InternProfile extends InternData {
@@ -81,6 +82,18 @@ export const createInternAccount = async (
     console.log('💾 About to save internProfile:', internProfile);
     console.log('✅ Final teacherId being saved:', internProfile.teacherId);
 
+    // Ensure phone field is always present, even if empty
+    if (!internProfile.phone) {
+      internProfile.phone = "";
+    }
+
+    // Triple check that phone field is never missing
+    console.log('📞 Final check for phone field before saving:', internProfile.phone);
+    if (internProfile.phone === undefined || internProfile.phone === null) {
+      console.warn('⚠️ Phone field was still missing at final save checkpoint! Setting to empty string.');
+      internProfile.phone = '';
+    }
+    
     // Store in interns collection
     await adminDb.collection('interns').doc(userRecord.uid).set(internProfile);
 
@@ -94,8 +107,14 @@ export const createInternAccount = async (
       company: "Education",
       teacherId: internData.teacherId,
       scheduledTimeIn: internData.scheduledTimeIn,
-      scheduledTimeOut: internData.scheduledTimeOut
+      scheduledTimeOut: internData.scheduledTimeOut,
+      phone: internData.phone
     };
+
+    // Ensure phone field is always present in user profile too, even if empty
+    if (!userProfile.phone) {
+      userProfile.phone = "";
+    }
 
     // Persist user profile and include teacherName if available
     if (internProfile.teacherId && (internProfile as any).teacherName) {
@@ -132,7 +151,7 @@ export const getInternStats = async () => {
       .limit(5)
       .get();
 
-    const recentAdditions = recentQuery.docs.map(doc => doc.data() as InternProfile);
+    const recentAdditions = recentQuery.docs.map((doc: any) => doc.data() as InternProfile);
 
     return {
       totalInterns,

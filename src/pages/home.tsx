@@ -24,6 +24,8 @@ import ManageInterns from "./manage-interns";
 import TeacherDashboard from "@/components/TeacherDashboard";
 import InternDashboard from "@/components/InternDashboard";
 import MyInterns from "@/components/MyInterns";
+import ViewTasksPage from "./view-tasks";
+import AttendanceHistoryPage from "./attendance-history";
 
 export default function Home() {
   const { userProfile, isLoading } = useAuth();
@@ -332,9 +334,12 @@ export default function Home() {
           {location.includes("/interns/") && (
             <ManageInterns teacherId={teacherId} teacherName={teacherName} />
           )}
+          {location === "/manage-interns" && userProfile?.role === "supervisor" && <ManageInterns />}
           {location === "/my-interns" && <MyInterns />}
           {location === "/add-task" && <AddTask />}
           {location === "/tasks" && <TasksPage />}
+          {location === "/view-tasks" && <ViewTasksPage />}
+          {location === "/attendance-history" && <AttendanceHistoryPage />}
           {location === "/reports" && <ReportsPage />}
           {location === "/intern-reports" && <InternReportsPage />}
           {/* Default to dashboard for any other route */}
@@ -344,9 +349,12 @@ export default function Home() {
            !location.includes("/dtr-reports") &&
            !location.includes("/manage-teachers") && 
            !location.includes("/interns/") && 
+           location !== "/manage-interns" &&
            location !== "/my-interns" && 
            location !== "/add-task" && 
            location !== "/tasks" && 
+           location !== "/view-tasks" && 
+           location !== "/attendance-history" && 
            location !== "/reports" && 
            location !== "/intern-reports" && (
             <>

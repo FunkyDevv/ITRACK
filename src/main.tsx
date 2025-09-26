@@ -11,4 +11,9 @@ try {
 	// ignore
 }
 
+// Setup console utilities for debugging
+import('./lib/consoleUtils').then(({ setupPhoneFieldsFix }) => {
+  setupPhoneFieldsFix();
+});
+
 createRoot(document.getElementById("root")!).render(<App />);

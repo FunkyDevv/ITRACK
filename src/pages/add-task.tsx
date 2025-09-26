@@ -42,6 +42,7 @@ interface Intern {
   firstName: string;
   lastName: string;
   email: string;
+  phone: string; // Add phone field
 }
 
 export default function AddTask() {

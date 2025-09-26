@@ -26,6 +26,7 @@ import {
   serverTimestamp,
   Unsubscribe,
 } from "firebase/firestore";
+import { deleteFromBytescale, extractFileIdFromUrl } from "./bytescale";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB6O45ISBuhi9wBE2PNVrNPV05W8w57j2U",
@@ -39,8 +40,10 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+export { app };
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+// Firebase Storage available as fallback when Bytescale fails
 
 // User types
 export interface UserData {
@@ -56,6 +59,7 @@ export interface UserData {
   // Scheduled work hours for interns
   scheduledTimeIn?: string; // e.g., "09:00"
   scheduledTimeOut?: string; // e.g., "17:00"
+  phone?: string; // Phone number field
 }
 
 export interface UserProfile {
@@ -66,6 +70,7 @@ export interface UserProfile {
   role: "supervisor" | "teacher" | "intern";
   teacherId?: string;
   company?: string;
+  phone?: string;
   acceptedTerms?: boolean;
   scheduledTimeIn?: string;
   scheduledTimeOut?: string;
@@ -83,6 +88,7 @@ export interface AttendanceRecord {
     longitude: number;
   };
   photoUrl: string;
+  timeOutPhotoUrl?: string; // Photo taken during time-out
   status: "pending" | "approved" | "rejected";
   createdAt: Timestamp;
   updatedAt?: Timestamp;
@@ -245,7 +251,7 @@ export const getTeachers = async () => {
 };
 
 // Get interns for a teacher
-export const getInternsForTeacher = async (teacherId: string) => {
+export const getInternsForTeacher = async (teacherId: string): Promise<InternProfile[]> => {
   console.log('🔍 Fetching interns for teacher:', teacherId);
   
   // Try querying from interns collection first (more efficient with your indexes)
@@ -262,9 +268,23 @@ export const getInternsForTeacher = async (teacherId: string) => {
       console.log('👤 Intern document:', docSnapshot.id, data);
       return {
         id: docSnapshot.id,
-        ...data
+        uid: data.uid,
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: "intern" as const,
+        teacherId: data.teacherId,
+        phone: data.phone,
+        scheduledTimeIn: data.scheduledTimeIn,
+        scheduledTimeOut: data.scheduledTimeOut,
+        location: data.location,
+        createdAt: data.createdAt ? (
+          data.createdAt.toDate ? data.createdAt.toDate() : 
+          data.createdAt instanceof Date ? data.createdAt :
+          new Date(data.createdAt)
+        ) : undefined
       };
-    }) as (UserData & { id: string })[];
+    }) as InternProfile[];
     
     console.log('✅ Found', interns.length, 'interns in interns collection');
     return interns;
@@ -278,10 +298,27 @@ export const getInternsForTeacher = async (teacherId: string) => {
       where("teacherId", "==", teacherId)
     );
     const snapshot = await getDocs(usersQuery);
-    const interns = snapshot.docs.map(docSnapshot => ({
-      id: docSnapshot.id,
-      ...docSnapshot.data()
-    })) as (UserData & { id: string })[];
+    const interns = snapshot.docs.map(docSnapshot => {
+      const data = docSnapshot.data();
+      return {
+        id: docSnapshot.id,
+        uid: data.uid,
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: "intern" as const,
+        teacherId: data.teacherId,
+        phone: data.phone,
+        scheduledTimeIn: data.scheduledTimeIn,
+        scheduledTimeOut: data.scheduledTimeOut,
+        location: data.location,
+        createdAt: data.createdAt ? (
+          data.createdAt.toDate ? data.createdAt.toDate() : 
+          data.createdAt instanceof Date ? data.createdAt :
+          new Date(data.createdAt)
+        ) : undefined
+      };
+    }) as InternProfile[];
     
     console.log('✅ Found', interns.length, 'interns in users collection (fallback)');
     return interns;
@@ -307,34 +344,43 @@ export const createAttendanceRecord = async (attendanceData: Omit<AttendanceReco
   return docRef.id;
 };
 
-// Delete photo from Firebase Storage given its URL
-import { getStorage, ref, deleteObject } from "firebase/storage";
-
+// Delete photo from Bytescale given its URL
 export const deletePhotoFromStorage = async (photoUrl: string) => {
   try {
-  const storage = getStorage();
-  // Firebase Storage URLs are usually in the format:
-  // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?alt=media
-  // Extract the <path> part and decode it
-  const url = new URL(photoUrl);
-  const path = decodeURIComponent(url.pathname.split('/o/')[1]);
-  const photoRef = ref(storage, path);
-    await deleteObject(photoRef);
-    console.log("✅ Photo deleted from storage:", photoUrl);
+    // Extract file ID from Bytescale URL
+    const fileId = extractFileIdFromUrl(photoUrl);
+    if (!fileId) {
+      console.warn("⚠️ Could not extract file ID from URL:", photoUrl);
+      return;
+    }
+    
+    await deleteFromBytescale(fileId);
+    console.log("✅ Photo deleted from Bytescale:", photoUrl);
   } catch (error) {
-    console.error("❌ Error deleting photo from storage:", error);
+    console.error("❌ Error deleting photo from Bytescale:", error);
   }
 };
 
 // Update attendance time out
-export const updateAttendanceTimeOut = async (attendanceId: string, clockOut: Date, isEarly?: boolean) => {
-  console.log("🕐 Updating time out for attendance:", attendanceId, "clockOut:", clockOut, "isEarly:", isEarly);
+export const updateAttendanceTimeOut = async (
+  attendanceId: string, 
+  clockOut: Date, 
+  timeOutPhotoUrl: string | null, 
+  isEarly?: boolean
+) => {
+  console.log("🕐 Updating time out for attendance:", attendanceId, "clockOut:", clockOut, "photo:", timeOutPhotoUrl, "isEarly:", isEarly);
   
   const attendanceRef = doc(db, "attendance", attendanceId);
   const updateData: any = {
     clockOut: Timestamp.fromDate(clockOut),
+    status: "pending", // Reset to pending for supervisor approval
     updatedAt: Timestamp.fromDate(new Date())
   };
+
+  // Only add photo URL if it exists
+  if (timeOutPhotoUrl) {
+    updateData.timeOutPhotoUrl = timeOutPhotoUrl;
+  }
   
   if (isEarly !== undefined) {
     updateData.isEarly = isEarly;
@@ -342,7 +388,7 @@ export const updateAttendanceTimeOut = async (attendanceId: string, clockOut: Da
   
   console.log("📝 Update data:", updateData);
   await updateDoc(attendanceRef, updateData);
-  console.log("✅ Time out updated successfully");
+  console.log("✅ Time out updated successfully, status reset to pending for approval");
 };
 
 // Get intern attendance records
@@ -557,6 +603,129 @@ export const updateAttendanceStatus = async (
   });
 };
 
+// Get all pending attendance records for supervisor approval
+export const getPendingAttendanceForSupervisor = async (supervisorUid: string): Promise<AttendanceRecord[]> => {
+  try {
+    console.log("📋 Fetching pending attendance for supervisor:", supervisorUid);
+    
+    // First, get all interns under this supervisor
+    const internsQuery = query(
+      collection(db, "interns"),
+      where("createdBy", "==", supervisorUid)
+    );
+    const internsSnapshot = await getDocs(internsQuery);
+    const internIds = internsSnapshot.docs.map(doc => doc.id);
+    
+    if (internIds.length === 0) {
+      console.log("📄 No interns found for supervisor");
+      return [];
+    }
+    
+    // Get pending attendance records for these interns (batched if needed)
+    const pendingRecords: AttendanceRecord[] = [];
+    
+    // Firebase 'in' queries are limited to 10 items, so batch if necessary
+    const batches = [];
+    for (let i = 0; i < internIds.length; i += 10) {
+      batches.push(internIds.slice(i, i + 10));
+    }
+    
+    for (const batch of batches) {
+      const attendanceQuery = query(
+        collection(db, "attendance"),
+        where("internId", "in", batch),
+        where("status", "==", "pending"),
+        orderBy("createdAt", "desc")
+      );
+      
+      const snapshot = await getDocs(attendanceQuery);
+      const batchRecords = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as AttendanceRecord[];
+      
+      pendingRecords.push(...batchRecords);
+    }
+    
+    console.log(`✅ Found ${pendingRecords.length} pending attendance records`);
+    return pendingRecords;
+  } catch (error) {
+    console.error("❌ Error getting pending attendance for supervisor:", error);
+    throw error;
+  }
+};
+
+// Subscribe to pending attendance records for supervisor
+export const subscribeToPendingAttendance = (
+  supervisorUid: string,
+  callback: (records: AttendanceRecord[]) => void
+): (() => void) => {
+  const unsubscribes: (() => void)[] = [];
+  
+  // First get interns, then set up listeners
+  const setupListeners = async () => {
+    try {
+      const internsQuery = query(
+        collection(db, "interns"),
+        where("createdBy", "==", supervisorUid)
+      );
+      const internsSnapshot = await getDocs(internsQuery);
+      const internIds = internsSnapshot.docs.map(doc => doc.id);
+      
+      if (internIds.length === 0) {
+        callback([]);
+        return;
+      }
+      
+      // Set up real-time listeners for pending attendance
+      const batches = [];
+      for (let i = 0; i < internIds.length; i += 10) {
+        batches.push(internIds.slice(i, i + 10));
+      }
+      
+      const allRecords: AttendanceRecord[] = [];
+      let completedBatches = 0;
+      
+      batches.forEach((batch, index) => {
+        const attendanceQuery = query(
+          collection(db, "attendance"),
+          where("internId", "in", batch),
+          where("status", "==", "pending"),
+          orderBy("createdAt", "desc")
+        );
+        
+        const unsubscribe = onSnapshot(attendanceQuery, (snapshot) => {
+          const batchRecords = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as AttendanceRecord[];
+          
+          // Replace this batch's records in the main array
+          const startIndex = index * 10;
+          const endIndex = startIndex + 10;
+          allRecords.splice(startIndex, endIndex - startIndex, ...batchRecords);
+          
+          completedBatches++;
+          if (completedBatches === batches.length) {
+            callback(allRecords.filter(Boolean)); // Filter out any undefined entries
+          }
+        });
+        
+        unsubscribes.push(unsubscribe);
+      });
+    } catch (error) {
+      console.error("❌ Error setting up pending attendance listeners:", error);
+      callback([]);
+    }
+  };
+  
+  setupListeners();
+  
+  return () => {
+    unsubscribes.forEach(unsubscribe => unsubscribe());
+  };
+};
+
 // Get all attendance records for a teacher
 export const getTeacherAttendanceRecords = async (teacherId: string): Promise<AttendanceRecord[]> => {
   const attendanceQuery = query(
@@ -572,10 +741,18 @@ export const getTeacherAttendanceRecords = async (teacherId: string): Promise<At
 };
 
 // Teacher management functions (using Firebase client SDK)
-export const createTeacherAccount = async (teacherData: { firstName: string; lastName: string; email: string; phone: string; password: string }, supervisorUid: string) => {
+export const createTeacherAccount = async (teacherData: { firstName: string; lastName: string; email: string; phone: string; password: string; school?: string }, supervisorUid: string) => {
   try {
+    console.log("🚀 Creating teacher account, starting API call...");
     // Use your deployed backend URL
     const backendUrl = 'https://backenditrack-1.onrender.com';
+    
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+      console.error("❌ Backend API timeout - taking too long");
+    }, 25000); // 25 second timeout for backend
     
     const response = await fetch(`${backendUrl}/api/teachers`, {
       method: 'POST',
@@ -585,8 +762,12 @@ export const createTeacherAccount = async (teacherData: { firstName: string; las
       body: JSON.stringify({
         teacherData,
         supervisorUid
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId); // Clear timeout on response
+    console.log("📡 Backend API response received");
 
     const result = await response.json();
 
@@ -598,8 +779,32 @@ export const createTeacherAccount = async (teacherData: { firstName: string; las
       throw new Error(result.message || 'Failed to create teacher account');
     }
 
+    console.log("✅ Teacher created successfully via backend");
+
+    // Simplified school field update - don't wait for it to complete
+    if (result.teacher && result.teacher.uid && teacherData.school) {
+      // Run in background without blocking the UI
+      setTimeout(async () => {
+        try {
+          console.log("🏫 Background update: Adding school field:", teacherData.school);
+          const teacherRef = doc(db, "teachers", result.teacher.uid);
+          await updateDoc(teacherRef, {
+            school: teacherData.school,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+          console.log("✅ School field updated in background");
+        } catch (updateError) {
+          console.error("❌ Background school update failed:", updateError);
+          // Don't throw error as main operation succeeded
+        }
+      }, 100); // Small delay to not block UI
+    }
+
     return result.teacher;
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error('Request timeout - please try again');
+    }
     console.error('Error creating teacher account:', error);
     throw new Error(error.message || 'Failed to create teacher account');
   }
@@ -627,10 +832,12 @@ export const getTeacherStats = async (teacherId: string) => {
 };
 
 // Intern management functions (using server-side Firebase Admin)
-export const createInternAccount = async (internData: { firstName: string; lastName: string; email: string; teacherId: string; password?: string; scheduledTimeIn?: string; scheduledTimeOut?: string }, teacherUid: string) => {
+export const createInternAccount = async (internData: { firstName: string; lastName: string; email: string; teacherId: string; password?: string; scheduledTimeIn?: string; scheduledTimeOut?: string; phone?: string }, teacherUid: string) => {
   try {
     // Use your deployed backend URL
     const backendUrl = 'https://backenditrack-1.onrender.com';
+    
+    console.log('📞 Client-side phone field check:', internData.phone);
     
     const response = await fetch(`${backendUrl}/api/interns`, {
       method: 'POST',
@@ -645,7 +852,8 @@ export const createInternAccount = async (internData: { firstName: string; lastN
           password: internData.password || "defaultPassword123",
           teacherId: internData.teacherId,  // Include the teacherId from internData
           scheduledTimeIn: internData.scheduledTimeIn || "08:00",
-          scheduledTimeOut: internData.scheduledTimeOut || "17:00"
+          scheduledTimeOut: internData.scheduledTimeOut || "17:00",
+          phone: internData.phone || "" // Ensure phone field is always included
         },
         supervisorUid: teacherUid  // Rename to match backend expectation
       })
@@ -668,7 +876,7 @@ export const createInternAccount = async (internData: { firstName: string; lastN
   }
 };
 
-export const getTeacherInterns = async (teacherId: string) => {
+export const getTeacherInterns = async (teacherId: string): Promise<InternProfile[]> => {
   return await getInternsForTeacher(teacherId);
 };
 
@@ -678,10 +886,17 @@ export interface InternProfile {
   email: string;
   firstName: string;
   lastName: string;
-  role: "intern";
+  role?: "intern";
   teacherId: string;
+  phone: string; // Make phone required
   scheduledTimeIn?: string;
   scheduledTimeOut?: string;
+  location?: {
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
+  createdAt?: Date;
 };
 
 // Fix intern records missing teacherId
@@ -1064,5 +1279,248 @@ export const getInternsForSupervisor = async (supervisorUid: string) => {
   } catch (error) {
     console.error('❌ Error getting interns for supervisor:', error);
     return [] as (UserData & { id: string })[];
+  }
+};
+
+// Subscribe to real-time updates for all interns under a supervisor
+export const subscribeToSupervisorInterns = (
+  supervisorUid: string,
+  callback: (interns: (UserData & { id: string; teacherName?: string })[]) => void
+): Unsubscribe => {
+  console.log('🔄 Setting up real-time subscription for supervisor interns:', supervisorUid);
+
+  // Create a function to fetch and enrich intern data
+  const fetchAndEnrichInterns = async () => {
+    try {
+      // Get all interns for this supervisor
+      const interns = await getInternsForSupervisor(supervisorUid);
+      
+      // Enrich with teacher names
+      const enrichedInterns = await Promise.all(
+        interns.map(async (intern) => {
+          if (intern.teacherId) {
+            try {
+              const teacherData = await getUserData(intern.teacherId);
+              return {
+                ...intern,
+                teacherName: teacherData ? `${teacherData.firstName} ${teacherData.lastName}` : 'Unknown Teacher'
+              };
+            } catch (error) {
+              console.warn('Could not fetch teacher data for:', intern.teacherId);
+              return { ...intern, teacherName: 'Unknown Teacher' };
+            }
+          }
+          return { ...intern, teacherName: 'No Teacher Assigned' };
+        })
+      );
+
+      callback(enrichedInterns);
+    } catch (error) {
+      console.error('❌ Error in real-time subscription:', error);
+      callback([]);
+    }
+  };
+
+  // Set up real-time listener on interns collection
+  const unsubscribe = onSnapshot(
+    collection(db, 'interns'),
+    async (snapshot) => {
+      console.log('🔄 Interns collection changed, refetching data...');
+      await fetchAndEnrichInterns();
+    },
+    (error) => {
+      console.error('❌ Error in interns subscription:', error);
+      callback([]);
+    }
+  );
+
+  // Initial fetch
+  fetchAndEnrichInterns();
+
+  return unsubscribe;
+};
+
+// Subscribe to pending attendance records for teacher's interns
+export const subscribeToTeacherPendingAttendance = (
+  teacherUid: string,
+  callback: (records: AttendanceRecord[]) => void
+): (() => void) => {
+  const unsubscribes: (() => void)[] = [];
+  
+  // First get interns assigned to this teacher, then set up listeners
+  const setupListeners = async () => {
+    try {
+      const internsQuery = query(
+        collection(db, "interns"),
+        where("teacherId", "==", teacherUid)
+      );
+      const internsSnapshot = await getDocs(internsQuery);
+      const internIds = internsSnapshot.docs.map(doc => doc.id);
+      
+      if (internIds.length === 0) {
+        callback([]);
+        return;
+      }
+
+      console.log(`📡 Setting up attendance listener for ${internIds.length} interns under teacher:`, teacherUid);
+
+      // Create batches of intern IDs (max 10 per query due to Firestore limit)
+      const batchSize = 10;
+      const batches: string[][] = [];
+      for (let i = 0; i < internIds.length; i += batchSize) {
+        batches.push(internIds.slice(i, i + batchSize));
+      }
+
+      batches.forEach(batch => {
+        const attendanceQuery = query(
+          collection(db, "attendance"),
+          where("internId", "in", batch),
+          where("status", "==", "pending")
+        );
+        
+        const unsubscribe = onSnapshot(
+          attendanceQuery,
+          (snapshot) => {
+            const allRecords: AttendanceRecord[] = [];
+            
+            // Collect records from all batches
+            batches.forEach(batchIds => {
+              const batchQuery = query(
+                collection(db, "attendance"),
+                where("internId", "in", batchIds),
+                where("status", "==", "pending")
+              );
+              
+              getDocs(batchQuery).then(batchSnapshot => {
+                const batchRecords = batchSnapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                })) as AttendanceRecord[];
+                
+                allRecords.push(...batchRecords);
+                callback(allRecords);
+              });
+            });
+          },
+          (error) => {
+            console.error("Error listening to teacher attendance:", error);
+            callback([]);
+          }
+        );
+        
+        unsubscribes.push(unsubscribe);
+      });
+    } catch (error) {
+      console.error("Error setting up teacher attendance listeners:", error);
+      callback([]);
+    }
+  };
+
+  setupListeners();
+
+  // Return cleanup function
+  return () => {
+    unsubscribes.forEach(unsub => unsub());
+  };
+};
+
+// Enhanced updateAttendanceStatus for more detailed updates
+export const updateAttendanceStatusWithDetails = async (
+  attendanceId: string,
+  updates: {
+    status: "approved" | "rejected";
+    approvalReason?: string;
+    approvedAt?: Date;
+    approvedBy?: string;
+  }
+) => {
+  const attendanceRef = doc(db, "attendance", attendanceId);
+  
+  // Build update object, excluding undefined values
+  const updateData: any = {
+    status: updates.status,
+    updatedAt: Timestamp.fromDate(new Date())
+  };
+
+  // Only add fields if they have values
+  if (updates.approvalReason !== undefined) {
+    updateData.approvalReason = updates.approvalReason;
+  }
+  
+  if (updates.approvedAt !== undefined) {
+    updateData.approvedAt = Timestamp.fromDate(updates.approvedAt);
+  }
+  
+  if (updates.approvedBy !== undefined) {
+    updateData.approvedBy = updates.approvedBy;
+  }
+
+  await updateDoc(attendanceRef, updateData);
+};
+
+// Fixed the error by using getUserProfile to fetch the intern's profile
+// Refactored submitDTR function to resolve errors
+export const submitDTR = async (userProfile: UserProfile): Promise<string> => {
+  try {
+    if (!userProfile) {
+      throw new Error("User profile not found");
+    }
+
+    console.log("🔍 Submitting DTR for intern:", userProfile.uid, "Name:", `${userProfile.firstName} ${userProfile.lastName}`);
+
+    // Get supervisorId from teacherId if present
+    let supervisorId = null;
+    if (userProfile.teacherId) {
+      console.log("👨‍🏫 Looking up teacher:", userProfile.teacherId);
+      const teacherDoc = await getDoc(doc(db, "users", userProfile.teacherId));
+      if (teacherDoc.exists()) {
+        supervisorId = teacherDoc.data().createdBy || null;
+        console.log("✅ Found supervisorId from teacher:", supervisorId);
+      } else {
+        console.log("❌ Teacher document not found in users collection");
+      }
+    } else {
+      console.log("⚠️ No teacherId found on intern profile");
+    }
+
+    // Fallback: try to get supervisorId from intern profile
+    if (!supervisorId && (userProfile as any).createdBy) {
+      supervisorId = (userProfile as any).createdBy;
+      console.log("✅ Found supervisorId from intern profile:", supervisorId);
+    }
+
+    if (!supervisorId) {
+      console.warn("❌ No supervisorId found for DTR submission! Intern UID:", userProfile.uid, "TeacherId:", userProfile.teacherId);
+      // Try to find any supervisor in the system as a last resort
+      try {
+        const supervisorsQuery = query(collection(db, "users"), where("role", "==", "supervisor"));
+        const supervisorsSnapshot = await getDocs(supervisorsQuery);
+        if (!supervisorsSnapshot.empty) {
+          supervisorId = supervisorsSnapshot.docs[0].id;
+          console.log("🔄 Using fallback supervisorId:", supervisorId);
+        }
+      } catch (error) {
+        console.error("❌ Error finding fallback supervisor:", error);
+      }
+    }
+
+    const dtrData = {
+      internId: userProfile.uid,
+      supervisorId,
+      studentName: `${userProfile.firstName} ${userProfile.lastName}`,
+      submittedAt: serverTimestamp(),
+      status: "submitted",
+      totalHours: 0, // Default value - can be updated later
+      grade: "", // Default value - can be updated later
+    };
+
+    console.log("📝 Creating DTR with data:", dtrData);
+
+    const docRef = await addDoc(collection(db, "dtrReports"), dtrData);
+    console.log("✅ DTR submitted with ID:", docRef.id, "SupervisorId:", supervisorId);
+    return docRef.id;
+  } catch (error) {
+    console.error("❌ Error submitting DTR:", error);
+    throw error;
   }
 };
