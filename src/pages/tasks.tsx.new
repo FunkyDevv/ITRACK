@@ -1,0 +1,144 @@
+import * as React from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  CheckSquare,
+  Calendar,
+  Clock,
+  FileText,
+  User,
+  ArrowLeft,
+  Play,
+  Check,
+  AlertCircle,
+  Eye,
+  Filter,
+  SortAsc,
+  Upload,
+  File,
+  Image,
+  Paperclip,
+  X,
+  Download
+} from "lucide-react";
+import { Task, subscribeToInternTasks, updateTaskStatus, TaskSubmission, Timestamp } from "@/lib/firebase";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
+// Helper function to safely convert any date-like value to a Date object
+const toDate = (date: string | Date | Timestamp | undefined): Date | null => {
+  if (!date) return null;
+  if (date instanceof Date) return date;
+  if (typeof date === 'string') return new Date(date);
+  if ('toDate' in date) return date.toDate(); // Handle Firestore Timestamp
+  return null;
+};
+
+export default function TasksPage() {
+  const { userProfile } = useAuth();
+  const { toast } = useToast();
+
+  // ... rest of your imports and state ...
+
+  const isOverdue = (date: string | Date | Timestamp | undefined): boolean => {
+    const convertedDate = toDate(date);
+    if (!convertedDate) return false;
+    return convertedDate < new Date();
+  };
+
+  const formatDate = (date: string | Date | Timestamp | undefined): string => {
+    const convertedDate = toDate(date);
+    return convertedDate ? convertedDate.toLocaleDateString() : 'No date set';
+  };
+
+  const formatTime = (date: string | Date | Timestamp | undefined): string => {
+    const convertedDate = toDate(date);
+    return convertedDate ? convertedDate.toLocaleTimeString() : 'No time set';
+  };
+
+  const filterTasks = (tasks: Task[]): Task[] => {
+    let filteredTasks = [...tasks];
+
+    // Filter by search term
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filteredTasks = filteredTasks.filter(task =>
+        task.title.toLowerCase().includes(term) ||
+        task.description.toLowerCase().includes(term)
+      );
+    }
+
+    // Filter by status
+    if (filterStatus !== "all") {
+      filteredTasks = filteredTasks.filter(task => task.status === filterStatus);
+    }
+
+    // Sort tasks
+    filteredTasks.sort((a, b) => {
+      switch (sortBy) {
+        case "dueDate": {
+          const dateA = toDate(a.dueDate);
+          const dateB = toDate(b.dueDate);
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return dateA.getTime() - dateB.getTime();
+        }
+        case "priority": {
+          const priorityOrder = { high: 3, medium: 2, low: 1 };
+          return priorityOrder[b.priority] - priorityOrder[a.priority];
+        }
+        case "status":
+          return a.status.localeCompare(b.status);
+        case "title":
+          return a.title.localeCompare(b.title);
+        default:
+          return 0;
+      }
+    });
+
+    return filteredTasks;
+  };
+
+  const getTaskStats = () => {
+    const completed = tasks.filter(t => t.status === 'completed').length;
+    const inProgress = tasks.filter(t => t.status === 'in-progress').length;
+    const pending = tasks.filter(t => t.status === 'pending').length;
+    const overdue = tasks.filter(t => isOverdue(t.dueDate) && t.status !== 'completed').length;
+
+    return { completed, inProgress, pending, overdue };
+  };
+
+  // In your JSX where you display dates:
+  return (
+    // ... rest of your component ...
+    {/* Replace date displays with formatDate/formatTime */}
+    <p className="text-sm text-muted-foreground">
+      Due: {formatDate(task.dueDate)}
+    </p>
+    <p className="text-sm text-muted-foreground">
+      {formatTime(task.dueDate)}
+    </p>
+    // ... rest of your JSX ...
+  );
+}
