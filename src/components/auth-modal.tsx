@@ -40,6 +40,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       lastName: "",
       email: "",
       company: "",
+      phone: "",
       password: "",
       confirmPassword: "",
     },
@@ -96,6 +97,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         lastName: data.lastName,
         role: "supervisor",
         company: data.company,
+        phone: data.phone,
       });
       return userCredential;
     },
@@ -293,6 +295,22 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 {signupForm.formState.errors.company && (
                   <p className="text-sm text-destructive mt-1">
                     {signupForm.formState.errors.company.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="signup-phone">Phone</Label>
+                <Input
+                  id="signup-phone"
+                  type="tel"
+                  placeholder="09XXXXXXXXX"
+                  {...signupForm.register("phone")}
+                  data-testid="input-signup-phone"
+                />
+                {signupForm.formState.errors.phone && (
+                  <p className="text-sm text-destructive mt-1">
+                    {signupForm.formState.errors.phone.message}
                   </p>
                 )}
               </div>

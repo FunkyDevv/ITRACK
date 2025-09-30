@@ -143,7 +143,7 @@ export const loginWithEmailAndPassword = async (email: string, password: string)
   return await signInWithEmailAndPassword(auth, email, password);
 };
 
-export const registerWithEmailAndPassword = async (email: string, password: string, userData: { firstName: string; lastName: string; role: "supervisor" | "teacher" | "intern"; teacherId?: string; company?: string }) => {
+export const registerWithEmailAndPassword = async (email: string, password: string, userData: { firstName: string; lastName: string; role: "supervisor" | "teacher" | "intern"; teacherId?: string; company?: string; phone?: string }) => {
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
 
@@ -155,6 +155,8 @@ export const registerWithEmailAndPassword = async (email: string, password: stri
     role: userData.role,
     ...(userData.teacherId && { teacherId: userData.teacherId }),
     ...(userData.company && { company: userData.company }),
+    // include phone if provided
+    ...(userData as any).phone && { phone: (userData as any).phone },
   };
 
   await setDoc(doc(db, "users", user.uid), userDocData);
