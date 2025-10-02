@@ -36,29 +36,50 @@ export async function registerRoutes(app) {
             res.status(500).json({ message: 'Failed to fetch teacher statistics' });
         }
     });
-    // Intern creation endpoint
+    // Create intern account endpoint
     app.post('/api/interns', async (req, res) => {
         try {
             const { internData, supervisorUid } = req.body;
-            console.log('📱 API received intern data:', JSON.stringify(internData));
-            console.log('📱 Phone field in request:', internData.phone);
+            console.log('🔍 Backend received internData:', internData);
+            console.log('🔍 Backend received supervisorUid:', supervisorUid);
+            console.log('🎯 TeacherId from internData:', internData.teacherId);
+            console.log('📞 Phone field from frontend:', internData.phone);
+            console.log('📞 Phone field type:', typeof internData.phone);
+            console.log('📞 Phone field length:', internData.phone ? internData.phone.length : 0);
             if (!internData || !supervisorUid) {
-                return res.status(400).json({ message: 'Missing required fields' });
+                return res.status(400).json({
+                    success: false,
+                    message: 'Missing required fields: internData and supervisorUid'
+                });
             }
-            // Ensure phone field is present before passing to createInternAccount
-            if (internData.phone === undefined) {
-                internData.phone = "";
-                console.log('📱 Added empty phone field to internData');
+            const { firstName, lastName, email, phone, // ✅ Added phone
+            password, teacherId, scheduledTimeIn, scheduledTimeOut } = internData;
+            if (!firstName || !lastName || !email || !password || !teacherId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Missing required intern fields (firstName, lastName, email, password, teacherId)'
+                });
             }
             const internProfile = await createInternAccount(internData, supervisorUid);
             res.status(201).json({
+                success: true,
                 message: 'Intern account created successfully',
                 intern: internProfile
             });
         }
         catch (error) {
             console.error('Error creating intern:', error);
-            res.status(500).json({ message: 'Failed to create intern account' });
+            if (error.code === 'auth/email-already-exists') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A user with this email already exists'
+                });
+            }
+            res.status(500).json({
+                success: false,
+                message: 'Failed to create intern account',
+                error: error.message
+            });
         }
     });
     // Get intern statistics

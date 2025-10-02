@@ -4,6 +4,8 @@ export const createInternAccount = async (internData, supervisorUid) => {
         console.log('🔍 Backend received internData:', internData);
         console.log('🔍 Backend received supervisorUid:', supervisorUid);
         console.log('🎯 TeacherId from internData:', internData.teacherId);
+        console.log('📞 InternService - Phone field:', internData.phone);
+        console.log('📞 InternService - Phone field type:', typeof internData.phone);
         // Create Firebase Auth account for intern with provided password
         const userRecord = await adminAuth.createUser({
             email: internData.email,
@@ -12,18 +14,18 @@ export const createInternAccount = async (internData, supervisorUid) => {
         });
         // Create intern profile in Firestore
         const internProfile = {
-            email: internData.email,
+            uid: userRecord.uid,
             firstName: internData.firstName,
             lastName: internData.lastName,
-            phone: internData.phone,
-            password: internData.password,
-            teacherId: internData.teacherId, // Explicitly preserve the teacherId
-            scheduledTimeIn: internData.scheduledTimeIn,
-            scheduledTimeOut: internData.scheduledTimeOut,
-            location: internData.location,
-            uid: userRecord.uid,
+            email: internData.email,
+            phone: internData.phone || "",                        // ✅ Save phone number
+            role: 'intern',
+            teacherId: internData.teacherId,         
+            scheduledTimeIn: internData.scheduledTimeIn || '08:00',
+            scheduledTimeOut: internData.scheduledTimeOut || '17:00',
+            createdBy: supervisorUid,     
             createdAt: new Date(),
-            createdBy: supervisorUid,
+            updatedAt: new Date(),
         };
         // Attempt to denormalize teacher name onto the intern document for faster reads
         try {
@@ -39,6 +41,8 @@ export const createInternAccount = async (internData, supervisorUid) => {
             console.warn('Could not denormalize teacher name for intern:', err);
         }
         console.log('💾 About to save internProfile:', internProfile);
+        console.log('📞 Profile phone field specifically:', internProfile.phone);
+        console.log('📞 Profile phone field type:', typeof internProfile.phone);
         console.log('✅ Final teacherId being saved:', internProfile.teacherId);
         // Ensure phone field is always present, even if empty
         if (!internProfile.phone) {
