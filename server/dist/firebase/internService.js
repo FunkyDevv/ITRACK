@@ -79,6 +79,8 @@ export const createInternAccount = async (internData, supervisorUid) => {
         }
         await adminDb.collection('users').doc(userRecord.uid).set(userProfile);
         // Return the intern profile (without the password)
+        console.log('📞 FINAL: Returning internProfile with phone:', internProfile.phone);
+        console.log('📞 FINAL: Full internProfile keys:', Object.keys(internProfile));
         return internProfile;
     }
     catch (error) {

@@ -46,6 +46,7 @@ export async function registerRoutes(app) {
             console.log('📞 Phone field from frontend:', internData.phone);
             console.log('📞 Phone field type:', typeof internData.phone);
             console.log('📞 Phone field length:', internData.phone ? internData.phone.length : 0);
+            console.log('🕐 Timestamp:', new Date().toISOString());
             if (!internData || !supervisorUid) {
                 return res.status(400).json({
                     success: false,
