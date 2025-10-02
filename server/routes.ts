@@ -51,6 +51,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('🔍 Backend received internData:', internData);
       console.log('🔍 Backend received supervisorUid:', supervisorUid);
       console.log('🎯 TeacherId from internData:', internData.teacherId);
+      console.log('📞 Phone field from frontend:', internData.phone);
+      console.log('📞 Phone field type:', typeof internData.phone);
+      console.log('📞 Phone field length:', internData.phone ? internData.phone.length : 0);
 
       if (!internData || !supervisorUid) {
         return res.status(400).json({ 
@@ -70,10 +73,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         scheduledTimeOut 
       } = internData;
 
-      if (!firstName || !lastName || !email || !password || !teacherId || !phone) {
+      if (!firstName || !lastName || !email || !password || !teacherId) {
         return res.status(400).json({ 
           success: false, 
-          message: 'Missing required intern fields (firstName, lastName, email, password, teacherId, phone)' 
+          message: 'Missing required intern fields (firstName, lastName, email, password, teacherId)' 
         });
       }
 

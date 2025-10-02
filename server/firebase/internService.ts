@@ -53,6 +53,8 @@ export const createInternAccount = async (
     console.log('🔍 Backend received internData:', internData);
     console.log('🔍 Backend received supervisorUid:', supervisorUid);
     console.log('🎯 TeacherId from internData:', internData.teacherId);
+    console.log('📞 InternService - Phone field:', internData.phone);
+    console.log('📞 InternService - Phone field type:', typeof internData.phone);
     // Create Firebase Auth account for intern with provided password
     const userRecord = await adminAuth.createUser({
       email: internData.email,
@@ -90,6 +92,8 @@ export const createInternAccount = async (
     }
 
     console.log('💾 About to save internProfile:', internProfile);
+    console.log('📞 Profile phone field specifically:', internProfile.phone);
+    console.log('📞 Profile phone field type:', typeof internProfile.phone);
 
     // Save to Firestore
     await adminDb.collection('users').doc(userRecord.uid).set(internProfile);

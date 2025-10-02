@@ -44,6 +44,9 @@ export async function registerRoutes(app) {
             console.log('🔍 Backend received internData:', internData);
             console.log('🔍 Backend received supervisorUid:', supervisorUid);
             console.log('🎯 TeacherId from internData:', internData.teacherId);
+            console.log('📞 Phone field from frontend:', internData.phone);
+            console.log('📞 Phone field type:', typeof internData.phone);
+            console.log('📞 Phone field length:', internData.phone ? internData.phone.length : 0);
             if (!internData || !supervisorUid) {
                 return res.status(400).json({
                     success: false,
@@ -52,10 +55,10 @@ export async function registerRoutes(app) {
             }
             const { firstName, lastName, email, phone, // ✅ Added phone
             password, teacherId, scheduledTimeIn, scheduledTimeOut } = internData;
-            if (!firstName || !lastName || !email || !password || !teacherId || !phone) {
+            if (!firstName || !lastName || !email || !password || !teacherId) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Missing required intern fields (firstName, lastName, email, password, teacherId, phone)'
+                    message: 'Missing required intern fields (firstName, lastName, email, password, teacherId)'
                 });
             }
             const internProfile = await createInternAccount(internData, supervisorUid);
