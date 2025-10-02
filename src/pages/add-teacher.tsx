@@ -96,12 +96,12 @@ export default function AddTeacher() {
     setIsSubmitting(true);
     setErrorMessage(null); // Clear previous errors
     
-    // Add timeout to prevent infinite loading - increased to 2 minutes
+    // Add timeout to prevent infinite loading - increased to 5 minutes
     const timeoutId = setTimeout(() => {
       setIsSubmitting(false);
       setErrorMessage("Request timeout - The server is taking too long to respond. Please try again.");
       console.error("⏰ Teacher creation timeout - taking too long");
-    }, 120000); // 2 minutes (120 seconds) timeout
+    }, 300000); // 5 minutes (300 seconds) timeout
     
     try {
       // Create teacher account first
@@ -158,18 +158,18 @@ export default function AddTeacher() {
 
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="container-responsive py-4 sm:py-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground" data-testid="text-add-teacher-title">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-responsive-lg font-bold text-foreground" data-testid="text-add-teacher-title">
             Add New Teacher
           </h1>
-          <p className="text-muted-foreground" data-testid="text-add-teacher-subtitle">
+          <p className="text-muted-foreground text-sm sm:text-base" data-testid="text-add-teacher-subtitle">
             Register a new teacher to join your educational team
           </p>
         </div>
-        <Badge variant="default" className="text-sm">
+        <Badge variant="default" className="text-xs sm:text-sm self-start sm:self-center">
           Supervisor Only
         </Badge>
       </div>
@@ -204,29 +204,29 @@ export default function AddTeacher() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Main Form */}
         <div className="lg:col-span-2">
           <Card data-testid="card-teacher-form">
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <UserPlus className="w-5 h-5 mr-2" />
+            <CardHeader className="pb-4 sm:pb-6">
+              <CardTitle className="flex items-center text-base sm:text-lg">
+                <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                 Teacher Information
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-sm">
                 Please fill in all required information for the new teacher
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="form-responsive">
                 {/* Personal Information */}
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold flex items-center">
+                  <h3 className="text-base sm:text-lg font-semibold flex items-center">
                     <User className="w-4 h-4 mr-2" />
                     Personal Information
                   </h3>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="form-group-responsive">
                     <div>
                       <Label htmlFor="firstName">First Name *</Label>
                       <Input
@@ -332,11 +332,12 @@ export default function AddTeacher() {
                 </div>
 
                 {/* Submit Button */}
-                <div className="flex justify-end space-x-4">
+                <div className="flex flex-col sm:flex-row justify-end gap-3 sm:gap-4">
                   <Button 
                     type="button" 
                     variant="outline"
                     onClick={() => form.reset()}
+                    className="btn-touch w-full sm:w-auto"
                     data-testid="button-reset-form"
                   >
                     Reset Form
@@ -344,12 +345,14 @@ export default function AddTeacher() {
                   <Button 
                     type="submit" 
                     disabled={isSubmitting}
+                    className="btn-touch w-full sm:w-auto"
                     data-testid="button-submit-teacher"
                   >
                     {isSubmitting ? (
                       <>
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Creating account and sending email... (may take up to 2 minutes)
+                        <span className="hidden sm:inline">Creating account and sending email... (may take up to 2 minutes)</span>
+                        <span className="sm:hidden">Creating account...</span>
                       </>
                     ) : (
                       <>
@@ -365,11 +368,11 @@ export default function AddTeacher() {
         </div>
 
         {/* Sidebar Info */}
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Guidelines Card */}
           <Card data-testid="card-guidelines">
             <CardHeader>
-              <CardTitle className="text-lg">Guidelines</CardTitle>
+              <CardTitle className="text-base sm:text-lg">Guidelines</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-start space-x-2">

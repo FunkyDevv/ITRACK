@@ -128,7 +128,25 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
         if (teacherId) {
           q = query(internsRef, where("teacherId", "==", teacherId), orderBy("createdAt", "desc"));
         } else {
-          q = query(internsRef, orderBy("createdAt", "desc"));
+          // For supervisors, only show interns created by them or assigned to their teachers
+          if (userProfile.role === 'supervisor') {
+            // First get teachers created by this supervisor
+            const teachersRef = collection(db, "teachers");
+            const teachersQuery = query(teachersRef, where("createdBy", "==", userProfile.uid));
+            const teachersSnapshot = await getDocs(teachersQuery);
+            const supervisorTeacherIds = teachersSnapshot.docs.map(doc => doc.id);
+            
+            if (supervisorTeacherIds.length > 0) {
+              // Query interns assigned to supervisor's teachers
+              q = query(internsRef, where("teacherId", "in", supervisorTeacherIds), orderBy("createdAt", "desc"));
+            } else {
+              // No teachers found, return empty query
+              q = query(internsRef, where("teacherId", "==", "non-existent-id"));
+            }
+          } else {
+            // For other roles, show all interns (fallback)
+            q = query(internsRef, orderBy("createdAt", "desc"));
+          }
         }
         const querySnapshot = await getDocs(q);
         const internsData = querySnapshot.docs.map(doc => {

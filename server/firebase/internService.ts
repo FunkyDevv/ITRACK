@@ -1,4 +1,5 @@
 import { adminAuth, adminDb } from './admin.js';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export interface InternData {
   email: string;
@@ -29,10 +30,19 @@ export interface UserProfile {
   phone?: string;
 }
 
-export interface InternProfile extends InternData {
+export interface InternProfile {
   uid: string;
-  createdAt: Date;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  role: string;
+  teacherId: string;
+  scheduledTimeIn: string;
+  scheduledTimeOut: string;
   createdBy: string;
+  createdAt: any; // FieldValue for server timestamp
+  updatedAt: any; // FieldValue for server timestamp
 }
 
 export const createInternAccount = async (
@@ -51,19 +61,19 @@ export const createInternAccount = async (
     });
 
     // Create intern profile in Firestore
-    const internProfile: InternProfile = {
-      email: internData.email,
+    const internProfile = {
+      uid: userRecord.uid,
       firstName: internData.firstName,
       lastName: internData.lastName,
-      phone: internData.phone,
-      password: internData.password,
-      teacherId: internData.teacherId, // Explicitly preserve the teacherId
-      scheduledTimeIn: internData.scheduledTimeIn,
-      scheduledTimeOut: internData.scheduledTimeOut,
-      location: internData.location,
-      uid: userRecord.uid,
-      createdAt: new Date(),
-      createdBy: supervisorUid,
+      email: internData.email,
+      phone: internData.phone || "",                        // ✅ Save phone number
+      role: 'intern',
+      teacherId: internData.teacherId,         
+      scheduledTimeIn: internData.scheduledTimeIn || '08:00',
+      scheduledTimeOut: internData.scheduledTimeOut || '17:00',
+      createdBy: supervisorUid,     
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     // Attempt to denormalize teacher name onto the intern document for faster reads
@@ -80,50 +90,12 @@ export const createInternAccount = async (
     }
 
     console.log('💾 About to save internProfile:', internProfile);
-    console.log('✅ Final teacherId being saved:', internProfile.teacherId);
 
-    // Ensure phone field is always present, even if empty
-    if (!internProfile.phone) {
-      internProfile.phone = "";
-    }
-
-    // Triple check that phone field is never missing
-    console.log('📞 Final check for phone field before saving:', internProfile.phone);
-    if (internProfile.phone === undefined || internProfile.phone === null) {
-      console.warn('⚠️ Phone field was still missing at final save checkpoint! Setting to empty string.');
-      internProfile.phone = '';
-    }
-    
-    // Store in interns collection
+    // Save to Firestore
+    await adminDb.collection('users').doc(userRecord.uid).set(internProfile);
     await adminDb.collection('interns').doc(userRecord.uid).set(internProfile);
 
-    // Also create a user profile
-    const userProfile: UserProfile = {
-      uid: userRecord.uid,
-      email: internData.email,
-      firstName: internData.firstName,
-      lastName: internData.lastName,
-      role: "intern",
-      company: "Education",
-      teacherId: internData.teacherId,
-      scheduledTimeIn: internData.scheduledTimeIn,
-      scheduledTimeOut: internData.scheduledTimeOut,
-      phone: internData.phone
-    };
-
-    // Ensure phone field is always present in user profile too, even if empty
-    if (!userProfile.phone) {
-      userProfile.phone = "";
-    }
-
-    // Persist user profile and include teacherName if available
-    if (internProfile.teacherId && (internProfile as any).teacherName) {
-      (userProfile as any).teacherName = (internProfile as any).teacherName;
-    }
-
-    await adminDb.collection('users').doc(userRecord.uid).set(userProfile);
-
-    // Return the intern profile (without the password)
+    // Return the intern profile
     return internProfile;
   } catch (error) {
     console.error('Error creating intern account:', error);
@@ -131,35 +103,76 @@ export const createInternAccount = async (
   }
 };
 
-export const getInternStats = async () => {
+export const getInternStats = async (supervisorUid: string) => {
   try {
-    const internsSnapshot = await adminDb.collection('interns').get();
+    console.log('🔍 Fetching intern stats for supervisor:', supervisorUid);
+    
+    // First get teachers created by this supervisor
+    const teachersQuery = await adminDb.collection('teachers')
+      .where('createdBy', '==', supervisorUid)
+      .get();
+    
+    const teacherIds = teachersQuery.docs.map(doc => doc.id);
+    console.log('🧑‍🏫 Found teacher IDs for supervisor:', teacherIds);
+    
+    if (teacherIds.length === 0) {
+      console.log('⚠️ No teachers found for supervisor, returning empty stats');
+      return {
+        totalInterns: 0,
+        thisMonth: 0,
+        recentAdditions: []
+      };
+    }
 
-    const totalInterns = internsSnapshot.size;
+    // Get all interns assigned to supervisor's teachers (batch query for >10 teachers)
+    let allInterns: any[] = [];
+    const batchSize = 10;
+    
+    for (let i = 0; i < teacherIds.length; i += batchSize) {
+      const batch = teacherIds.slice(i, i + batchSize);
+      const internsQuery = await adminDb.collection('interns')
+        .where('teacherId', 'in', batch)
+        .get();
+      allInterns.push(...internsQuery.docs);
+    }
+
+    const totalInterns = allInterns.length;
 
     // Get this month's additions
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-    const thisMonthQuery = await adminDb.collection('interns')
-      .where('createdAt', '>=', oneMonthAgo)
-      .get();
+    let thisMonthCount = 0;
+    let recentAdditions: any[] = [];
 
-    // Get recent additions
-    const recentQuery = await adminDb.collection('interns')
-      .orderBy('createdAt', 'desc')
-      .limit(5)
-      .get();
+    // Process all interns to get monthly and recent stats
+    const internData = allInterns.map(doc => {
+      const data = doc.data();
+      const createdAt = data.createdAt?.toDate() || new Date(0);
+      
+      // Count this month's additions
+      if (createdAt >= oneMonthAgo) {
+        thisMonthCount++;
+      }
+      
+      return { id: doc.id, ...data, createdAt };
+    });
 
-    const recentAdditions = recentQuery.docs.map((doc: any) => doc.data() as InternProfile);
+    // Get 5 most recent additions
+    recentAdditions = internData
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 5)
+      .map(intern => ({ ...intern, createdAt: intern.createdAt }));
+
+    console.log('✅ Supervisor intern stats:', { totalInterns, thisMonth: thisMonthCount, recentCount: recentAdditions.length });
 
     return {
       totalInterns,
-      thisMonth: thisMonthQuery.size,
+      thisMonth: thisMonthCount,
       recentAdditions
     };
   } catch (error) {
-    console.error('Error fetching intern stats:', error);
+    console.error('❌ Error fetching intern stats for supervisor:', error);
     return {
       totalInterns: 0,
       thisMonth: 0,

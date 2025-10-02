@@ -89,8 +89,6 @@ export default function ManageTeachers() {
   const [selectedInterns, setSelectedInterns] = React.useState<string[]>([]);
   const [operationLoading, setOperationLoading] = React.useState<string | null>(null);
   const [bulkActionType, setBulkActionType] = React.useState<string>("");
-  const [editingIntern, setEditingIntern] = React.useState<any>(null);
-  const [showEditInternForm, setShowEditInternForm] = React.useState(false);
 
   console.log("🎯 ManageTeachers render - isAuthenticated:", isAuthenticated, "user:", !!user, "userProfile:", !!userProfile);
 
@@ -779,7 +777,6 @@ export default function ManageTeachers() {
                         <div className="text-xs text-muted-foreground">{intern.phone && intern.phone.trim() !== "" ? intern.phone : "No phone number provided"}</div>
                       </div>
                       <div className="flex gap-2">
-                        <Button onClick={() => handleEditIntern(intern)}>Edit</Button>
                         <Button variant="destructive" onClick={() => handleDeleteIntern(intern.uid)}>Delete</Button>
                       </div>
                     </div>

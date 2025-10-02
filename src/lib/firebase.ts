@@ -754,7 +754,7 @@ export const createTeacherAccount = async (teacherData: { firstName: string; las
     const timeoutId = setTimeout(() => {
       controller.abort();
       console.error("❌ Backend API timeout - taking too long");
-    }, 25000); // 25 second timeout for backend
+    }, 120000); // 2 minutes (120 seconds) timeout for backend
     
     const response = await fetch(`${backendUrl}/api/teachers`, {
       method: 'POST',

@@ -195,13 +195,30 @@ export default function Home() {
             onMobileClose={() => setIsMobileMenuOpen(false)}
           />
         </div>
+
+        {/* Mobile Navigation Overlay */}
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setIsMobileMenuOpen(false)} />
+            <div className="absolute left-0 top-0 h-full w-80 max-w-[85vw] bg-card border-r border-border">
+              <Sidebar 
+                collapsed={false}
+                onToggle={() => setIsMobileMenuOpen(false)}
+                onNavigate={handleNavigate}
+                currentPage={location}
+                onMobileClose={() => setIsMobileMenuOpen(false)}
+              />
+            </div>
+          </div>
+        )}
         
         <main className="flex-1 overflow-auto">
           {/* Mobile Header */}
-          <div className="md:hidden bg-card border-b border-border p-4 flex items-center justify-between">
+          <div className="md:hidden bg-card border-b border-border p-3 sm:p-4 flex items-center justify-between sticky top-0 z-40">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors btn-touch"
+              aria-label="Open navigation menu"
             >
               <Menu className="w-6 h-6" />
             </button>
@@ -209,7 +226,7 @@ export default function Home() {
               <div className="bg-primary text-primary-foreground w-8 h-8 rounded-md flex items-center justify-center font-bold text-sm">
                 I
               </div>
-              <span className="text-lg font-bold text-foreground">I-TRACK</span>
+              <span className="text-base sm:text-lg font-bold text-foreground">I-TRACK</span>
             </div>
             <div className="w-6" /> {/* Spacer for centering */}
           </div>
@@ -217,19 +234,19 @@ export default function Home() {
           {location === "/" && (
             <>
               {isSupervisor && (
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div className="max-w-7xl mx-auto container-responsive py-4 sm:py-6 lg:py-8">
                 {/* Welcome Section */}
-                <div className="mb-8">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="text-dashboard-title">
+                <div className="mb-6 sm:mb-8">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <h1 className="text-responsive-lg font-bold text-foreground mb-2" data-testid="text-dashboard-title">
                         Welcome back, {userProfile?.firstName}!
                       </h1>
-                      <p className="text-muted-foreground" data-testid="text-dashboard-subtitle">
+                      <p className="text-muted-foreground text-sm sm:text-base" data-testid="text-dashboard-subtitle">
                         Manage your team and track progress from your supervisor dashboard.
                       </p>
                     </div>
-                    <Badge variant="default" className="text-sm" data-testid="badge-user-role">
+                    <Badge variant="default" className="text-xs sm:text-sm self-start sm:self-center" data-testid="badge-user-role">
                       Supervisor
                     </Badge>
                   </div>
@@ -254,36 +271,36 @@ export default function Home() {
                 </div>
 
                 {/* Dashboard Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                  <Card data-testid="card-total-interns">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
+                  <Card data-testid="card-total-interns" className="hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">Total Interns</CardTitle>
                       <Users className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">12</div>
+                      <div className="text-xl sm:text-2xl font-bold">12</div>
                       <p className="text-xs text-muted-foreground">+2 from last month</p>
                     </CardContent>
                   </Card>
 
-                  <Card data-testid="card-total-teachers">
+                  <Card data-testid="card-total-teachers" className="hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">Total Teachers</CardTitle>
                       <GraduationCap className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">3</div>
+                      <div className="text-xl sm:text-2xl font-bold">3</div>
                       <p className="text-xs text-muted-foreground">+1 from last month</p>
                     </CardContent>
                   </Card>
 
-                  <Card data-testid="card-pending-reports">
+                  <Card data-testid="card-pending-reports" className="hover:shadow-md transition-shadow sm:col-span-2 lg:col-span-1">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">Pending Reports</CardTitle>
                       <AlertCircle className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">4</div>
+                      <div className="text-xl sm:text-2xl font-bold">4</div>
                       <p className="text-xs text-muted-foreground">Reports awaiting review</p>
                     </CardContent>
                   </Card>

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { createTeacherAccount, getTeacherStats, type TeacherData } from "./firebase/teacherService.js";
 import { createInternAccount, getInternStats, type InternData } from "./firebase/internService.js";
+import { adminDb } from "./firebase/admin.js";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Firebase handles authentication on the client side
@@ -42,44 +43,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Intern creation endpoint
+  // Create intern account endpoint
   app.post('/api/interns', async (req, res) => {
     try {
-      const { internData, supervisorUid }: { internData: InternData; supervisorUid: string } = req.body;
-
-      console.log('📱 API received intern data:', JSON.stringify(internData));
-      console.log('📱 Phone field in request:', internData.phone);
+      const { internData, supervisorUid } = req.body;
+      
+      console.log('🔍 Backend received internData:', internData);
+      console.log('🔍 Backend received supervisorUid:', supervisorUid);
+      console.log('🎯 TeacherId from internData:', internData.teacherId);
 
       if (!internData || !supervisorUid) {
-        return res.status(400).json({ message: 'Missing required fields' });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Missing required fields: internData and supervisorUid' 
+        });
       }
 
-      // Ensure phone field is present before passing to createInternAccount
-      if (internData.phone === undefined) {
-        internData.phone = "";
-        console.log('📱 Added empty phone field to internData');
+      const { 
+        firstName, 
+        lastName, 
+        email, 
+        phone,             // ✅ Added phone
+        password, 
+        teacherId, 
+        scheduledTimeIn, 
+        scheduledTimeOut 
+      } = internData;
+
+      if (!firstName || !lastName || !email || !password || !teacherId || !phone) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Missing required intern fields (firstName, lastName, email, password, teacherId, phone)' 
+        });
       }
 
       const internProfile = await createInternAccount(internData, supervisorUid);
 
       res.status(201).json({
+        success: true,
         message: 'Intern account created successfully',
         intern: internProfile
       });
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Error creating intern:', error);
-      res.status(500).json({ message: 'Failed to create intern account' });
+
+      if (error.code === 'auth/email-already-exists') {
+        return res.status(400).json({
+          success: false,
+          message: 'A user with this email already exists'
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create intern account',
+        error: error.message
+      });
     }
   });
 
-  // Get intern statistics
+  // Get all interns for a supervisor (filtered by supervisor)
+  app.get('/api/interns', async (req, res) => {
+    try {
+      const { supervisorUid } = req.query;
+      
+      if (!supervisorUid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Missing required parameter: supervisorUid' 
+        });
+      }
+      
+      // First get teachers created by this supervisor
+      const teachersQuery = await adminDb.collection('teachers')
+        .where('createdBy', '==', supervisorUid)
+        .get();
+      
+      const teacherIds = teachersQuery.docs.map(doc => doc.id);
+      
+      if (teacherIds.length === 0) {
+        return res.json({
+          success: true,
+          interns: []
+        });
+      }
+
+      // Get all interns assigned to supervisor's teachers (batch query for >10 teachers)
+      let allInterns: any[] = [];
+      const batchSize = 10;
+      
+      for (let i = 0; i < teacherIds.length; i += batchSize) {
+        const batch = teacherIds.slice(i, i + batchSize);
+        const internsQuery = await adminDb.collection('interns')
+          .where('teacherId', 'in', batch)
+          .orderBy('createdAt', 'desc')
+          .get();
+        allInterns.push(...internsQuery.docs);
+      }
+
+      const interns = allInterns.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      res.json({
+        success: true,
+        interns
+      });
+    } catch (error) {
+      console.error('Error fetching interns for supervisor:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Failed to fetch interns' 
+      });
+    }
+  });
+
+  // Get intern statistics (filtered by supervisor)
   app.get('/api/interns/stats', async (req, res) => {
     try {
-      const stats = await getInternStats();
+      const { supervisorUid } = req.query;
+      
+      if (!supervisorUid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Missing required parameter: supervisorUid' 
+        });
+      }
+      
+      const stats = await getInternStats(supervisorUid as string);
       res.json(stats);
     } catch (error) {
       console.error('Error fetching intern stats:', error);
-      res.status(500).json({ message: 'Failed to fetch intern statistics' });
+      res.status(500).json({ 
+        success: false, 
+        message: 'Failed to fetch intern statistics' 
+      });
     }
   });
 
