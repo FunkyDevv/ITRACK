@@ -882,6 +882,163 @@ export const getTeacherInterns = async (teacherId: string): Promise<InternProfil
   return await getInternsForTeacher(teacherId);
 };
 
+// Subscribe to real-time updates for teacher's interns
+export const subscribeToTeacherInterns = (
+  teacherId: string,
+  callback: (interns: InternProfile[]) => void
+): Unsubscribe => {
+  console.log('🔄 Setting up real-time subscription for teacher interns:', teacherId);
+
+  // First try the interns collection
+  const internsQuery = query(
+    collection(db, "interns"),
+    where("teacherId", "==", teacherId)
+  );
+
+  let unsubscribeInterns: Unsubscribe | null = null;
+  let unsubscribeUsers: Unsubscribe | null = null;
+  let hasInternsData = false;
+
+  // Set up subscription to interns collection
+  unsubscribeInterns = onSnapshot(
+    internsQuery,
+    (snapshot) => {
+      console.log('📊 Interns collection changed, processing updates...');
+      console.log('📊 Snapshot size:', snapshot.size);
+      
+      if (snapshot.size > 0) {
+        hasInternsData = true;
+        const interns = snapshot.docs.map(docSnapshot => {
+          const data = docSnapshot.data();
+          console.log('👤 Updated intern document from interns collection:', docSnapshot.id, 'phone:', data.phone);
+          console.log('📱 Full intern data:', data);
+          return {
+            id: docSnapshot.id,
+            uid: data.uid,
+            email: data.email,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: "intern" as const,
+            teacherId: data.teacherId,
+            phone: data.phone || "", // Ensure phone is always included
+            scheduledTimeIn: data.scheduledTimeIn,
+            scheduledTimeOut: data.scheduledTimeOut,
+            location: data.location,
+            createdAt: data.createdAt ? (
+              data.createdAt.toDate ? data.createdAt.toDate() : 
+              data.createdAt instanceof Date ? data.createdAt :
+              new Date(data.createdAt)
+            ) : undefined
+          };
+        }) as InternProfile[];
+        
+        console.log('✅ Processed', interns.length, 'interns from interns collection with phone numbers:', interns.map(i => ({ name: `${i.firstName} ${i.lastName}`, phone: i.phone })));
+        callback(interns);
+      } else if (!hasInternsData) {
+        // If no data in interns collection, try users collection
+        console.log('📊 No data in interns collection, trying users collection...');
+        
+        const usersQuery = query(
+          collection(db, "users"),
+          where("role", "==", "intern"),
+          where("teacherId", "==", teacherId)
+        );
+
+        unsubscribeUsers = onSnapshot(
+          usersQuery,
+          (usersSnapshot) => {
+            console.log('📊 Users collection changed, processing updates...');
+            const interns = usersSnapshot.docs.map(docSnapshot => {
+              const data = docSnapshot.data();
+              console.log('👤 Updated intern document from users collection:', docSnapshot.id, 'phone:', data.phone);
+              console.log('📱 Full user data:', data);
+              return {
+                id: docSnapshot.id,
+                uid: data.uid,
+                email: data.email,
+                firstName: data.firstName,
+                lastName: data.lastName,
+                role: "intern" as const,
+                teacherId: data.teacherId,
+                phone: data.phone || "", // Ensure phone is always included
+                scheduledTimeIn: data.scheduledTimeIn,
+                scheduledTimeOut: data.scheduledTimeOut,
+                location: data.location,
+                createdAt: data.createdAt ? (
+                  data.createdAt.toDate ? data.createdAt.toDate() : 
+                  data.createdAt instanceof Date ? data.createdAt :
+                  new Date(data.createdAt)
+                ) : undefined
+              };
+            }) as InternProfile[];
+            
+            console.log('✅ Processed', interns.length, 'interns from users collection with phone numbers:', interns.map(i => ({ name: `${i.firstName} ${i.lastName}`, phone: i.phone })));
+            callback(interns);
+          },
+          (error) => {
+            console.error('❌ Error in users collection subscription:', error);
+            callback([]);
+          }
+        );
+      }
+    },
+    (error) => {
+      console.error('❌ Error in interns collection subscription:', error);
+      
+      // Fallback to users collection if interns collection fails
+      console.log('📊 Falling back to users collection due to error...');
+      const usersQuery = query(
+        collection(db, "users"),
+        where("role", "==", "intern"),
+        where("teacherId", "==", teacherId)
+      );
+
+      unsubscribeUsers = onSnapshot(
+        usersQuery,
+        (usersSnapshot) => {
+          console.log('📊 Users collection fallback - processing updates...');
+          const interns = usersSnapshot.docs.map(docSnapshot => {
+            const data = docSnapshot.data();
+            console.log('👤 Fallback intern document from users collection:', docSnapshot.id, 'phone:', data.phone);
+            return {
+              id: docSnapshot.id,
+              uid: data.uid,
+              email: data.email,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              role: "intern" as const,
+              teacherId: data.teacherId,
+              phone: data.phone || "",
+              scheduledTimeIn: data.scheduledTimeIn,
+              scheduledTimeOut: data.scheduledTimeOut,
+              location: data.location,
+              createdAt: data.createdAt ? (
+                data.createdAt.toDate ? data.createdAt.toDate() : 
+                data.createdAt instanceof Date ? data.createdAt :
+                new Date(data.createdAt)
+              ) : undefined
+            };
+          }) as InternProfile[];
+          
+          console.log('✅ Processed', interns.length, 'fallback interns from users collection with phone numbers:', interns.map(i => ({ name: `${i.firstName} ${i.lastName}`, phone: i.phone })));
+          callback(interns);
+        },
+        (fallbackError) => {
+          console.error('❌ Error in users collection fallback subscription:', fallbackError);
+          callback([]);
+        }
+      );
+    }
+  );
+
+  // Return cleanup function
+  return () => {
+    console.log('🔄 Cleaning up teacher interns subscriptions');
+    if (unsubscribeInterns) unsubscribeInterns();
+    if (unsubscribeUsers) unsubscribeUsers();
+  };
+};
+
 export interface InternProfile {
   id: string;
   uid: string;

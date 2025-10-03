@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeToTeacherInterns, InternProfile } from "@/lib/firebase";
-import { subscribeToTeacherInternPhones, subscribeToTeacherInterns } from "@/lib/realtimeSync";
 import {
   Table,
   TableBody,
@@ -42,43 +41,24 @@ export default function MyInterns() {
     if (!userProfile?.uid) return;
     
     console.log("🔄 Setting up real-time subscription for teacher interns:", userProfile.uid);
-    console.log("👤 Current user profile:", userProfile);
     setIsLoading(true);
     
     // Subscribe to real-time updates
     const unsubscribe = subscribeToTeacherInterns(
       userProfile.uid,
       (teacherInterns) => {
-        console.log("📱 MyInterns Component - Real-time update received:");
-        console.log("📱 Number of interns:", teacherInterns.length);
-        console.log("📱 Raw intern data:", teacherInterns);
+        console.log("📱 Real-time update - received interns:", teacherInterns);
         
-        // Debug log each intern's data with special focus on phone
+        // Debug log each intern's data
         teacherInterns.forEach((intern, index) => {
-          console.log(`👤 MyInterns - Intern ${index + 1}:`, {
-            id: intern.id,
+          console.log(`👤 Real-time Intern ${index + 1}:`, {
             name: `${intern.firstName} ${intern.lastName}`,
             email: intern.email,
             phone: intern.phone,
-            phoneType: typeof intern.phone,
-            phoneLength: intern.phone ? intern.phone.length : 0,
-            phoneEmpty: !intern.phone || intern.phone.trim() === "",
             location: intern.location,
             createdAt: intern.createdAt,
             allFields: Object.keys(intern)
           });
-          
-          // Extra phone debugging
-          if (intern.phone) {
-            console.log(`📞 MyInterns - Intern ${index + 1} phone details:`, {
-              raw: intern.phone,
-              trimmed: intern.phone.trim(),
-              length: intern.phone.length,
-              isEmpty: intern.phone.trim() === ""
-            });
-          } else {
-            console.log(`📞 MyInterns - Intern ${index + 1} has NO phone number!`);
-          }
         });
         
         setInterns(teacherInterns);
@@ -93,98 +73,10 @@ export default function MyInterns() {
     };
   }, [userProfile?.uid]);
 
-  // Set up additional real-time profile synchronization
-  React.useEffect(() => {
-    if (!userProfile?.uid) return;
-
-    console.log(`📡 MyInterns - Setting up additional real-time profile sync for teacher ${userProfile.uid}`);
-    
-    const unsubscribe = subscribeToTeacherInterns(userProfile.uid, (updatedInterns) => {
-      console.log(`📞 MyInterns - Real-time profile updates for teacher ${userProfile.uid}:`, updatedInterns);
-      
-      // Update intern profiles in real-time
-      setInterns(prevInterns => 
-        prevInterns.map(intern => {
-          const updatedIntern = updatedInterns.find(updated => updated.uid === intern.id);
-          if (updatedIntern) {
-            console.log(`📞 MyInterns - Updating profile for intern ${intern.id}:`, updatedIntern);
-            return { 
-              ...intern, 
-              firstName: updatedIntern.firstName || intern.firstName,
-              lastName: updatedIntern.lastName || intern.lastName,
-              email: updatedIntern.email || intern.email,
-              phone: updatedIntern.phone || intern.phone
-            };
-          }
-          return intern;
-        })
-      );
-    });
-
-    return () => {
-      console.log(`📡 MyInterns - Cleaning up additional real-time profile sync`);
-      unsubscribe();
-    };
-  }, [userProfile?.uid]);
-
   const handleViewIntern = (intern: InternProfile) => {
     setSelectedIntern(intern);
     setShowViewModal(true);
   };
-
-  // Temporary debugging function to check database directly
-  const debugDatabaseContents = async () => {
-    if (!userProfile?.uid) return;
-    
-    console.log("🔍 DEBUGGING: Manually checking database contents...");
-    
-    try {
-      // Check interns collection
-      const { getDocs, query, where, collection } = await import('firebase/firestore');
-      const { db } = await import('@/lib/firebase');
-      
-      const internsQuery = query(
-        collection(db, "interns"),
-        where("teacherId", "==", userProfile.uid)
-      );
-      const internsSnapshot = await getDocs(internsQuery);
-      
-      console.log("🔍 INTERNS COLLECTION:");
-      console.log("📊 Size:", internsSnapshot.size);
-      internsSnapshot.docs.forEach((doc, index) => {
-        const data = doc.data();
-        console.log(`📄 Intern ${index + 1} (${doc.id}):`, data);
-        console.log(`📞 Phone specifically:`, data.phone, typeof data.phone);
-      });
-      
-      // Check users collection
-      const usersQuery = query(
-        collection(db, "users"),
-        where("role", "==", "intern"),
-        where("teacherId", "==", userProfile.uid)
-      );
-      const usersSnapshot = await getDocs(usersQuery);
-      
-      console.log("🔍 USERS COLLECTION:");
-      console.log("📊 Size:", usersSnapshot.size);
-      usersSnapshot.docs.forEach((doc, index) => {
-        const data = doc.data();
-        console.log(`👤 User ${index + 1} (${doc.id}):`, data);
-        console.log(`📞 Phone specifically:`, data.phone, typeof data.phone);
-      });
-      
-    } catch (error) {
-      console.error("🔍 Error during manual database check:", error);
-    }
-  };
-
-  // Add debug button (temporary)
-  React.useEffect(() => {
-    // Auto-run debug check when component mounts
-    if (userProfile?.uid) {
-      setTimeout(debugDatabaseContents, 2000); // Wait 2 seconds after mount
-    }
-  }, [userProfile?.uid]);
 
   if (isLoading) {
     return (
@@ -205,33 +97,9 @@ export default function MyInterns() {
           <h1 className="text-3xl font-bold">My Interns</h1>
           <p className="text-muted-foreground">Manage and monitor your assigned interns</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className="text-sm">
-            {interns.length} Intern{interns.length !== 1 ? 's' : ''}
-          </Badge>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={debugDatabaseContents}
-            className="text-xs"
-          >
-            🔍 Debug DB
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              console.log("🔄 Refreshing intern data...");
-              if (userProfile?.uid) {
-                // Force refresh by calling debugDatabaseContents
-                await debugDatabaseContents();
-              }
-            }}
-            className="text-xs"
-          >
-            🔄 Refresh
-          </Button>
-        </div>
+        <Badge variant="outline" className="text-sm">
+          {interns.length} Intern{interns.length !== 1 ? 's' : ''}
+        </Badge>
       </div>
 
       {/* Stats Cards */}

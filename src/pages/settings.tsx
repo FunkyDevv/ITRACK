@@ -32,7 +32,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { getFirestore, doc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { updatePhoneNumberRealtime, subscribeToPhoneUpdates, subscribeToProfileUpdates } from "@/lib/realtimeSync";
+import { db } from "@/lib/firebase";
 
 export default function SettingsPage() {
   const { userProfile, isLoading } = useAuth();
@@ -114,6 +116,35 @@ export default function SettingsPage() {
     }
   }, [userProfile, isLoading]);
 
+  // Set up real-time profile synchronization for all fields
+  React.useEffect(() => {
+    if (!userProfile?.uid || !userProfile?.role) return;
+
+    console.log(`📡 Setting up real-time profile sync for ${userProfile.role} ${userProfile.uid}`);
+    
+    const unsubscribe = subscribeToProfileUpdates(
+      userProfile.uid,
+      userProfile.role as 'supervisor' | 'teacher' | 'intern',
+      (updatedProfile) => {
+        console.log(`📞 Real-time profile update received:`, updatedProfile);
+        
+        // Update all form fields with the new data
+        if (updatedProfile.firstName !== undefined) setFirstName(updatedProfile.firstName || "");
+        if (updatedProfile.lastName !== undefined) setLastName(updatedProfile.lastName || "");
+        if (updatedProfile.email !== undefined) setEmail(updatedProfile.email || "");
+        if (updatedProfile.phone !== undefined) setPhone(updatedProfile.phone || "");
+        if (updatedProfile.company !== undefined) setCompany(updatedProfile.company || "");
+        if (updatedProfile.scheduledTimeIn !== undefined) setScheduledTimeIn(updatedProfile.scheduledTimeIn || "09:00");
+        if (updatedProfile.scheduledTimeOut !== undefined) setScheduledTimeOut(updatedProfile.scheduledTimeOut || "17:00");
+      }
+    );
+
+    return () => {
+      console.log(`📡 Cleaning up real-time profile sync for ${userProfile.role} ${userProfile.uid}`);
+      unsubscribe();
+    };
+  }, [userProfile?.uid, userProfile?.role]);
+
   // Early return with loading state if loading or no profile
   if (isLoading || !userProfile) {
     return (
@@ -132,27 +163,39 @@ export default function SettingsPage() {
     
     setSaving(true);
     try {
-      // Here you would typically update the profile in your backend
-      // For now we'll simulate the delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log(`💾 Saving profile for ${userProfile.role} ${userProfile.uid}`);
       
-      // Update local state to match what we're saving
-      const updatedProfile = {
-        ...userProfile,
+      // Update profile data in Firestore
+      const updateData = {
         firstName,
         lastName,
         email,
         company,
         phone,
         scheduledTimeIn,
-        scheduledTimeOut
+        scheduledTimeOut,
+        updatedAt: new Date()
       };
+
+      // Update the appropriate collection based on user role
+      const collectionName = userProfile.role === 'supervisor' ? 'users' : 
+                            userProfile.role === 'teacher' ? 'teachers' : 'interns';
+      
+      await updateDoc(doc(db, collectionName, userProfile.uid), updateData);
+      
+      // Also update users collection for consistency
+      if (userProfile.role !== 'supervisor') {
+        await updateDoc(doc(db, 'users', userProfile.uid), updateData);
+      }
+      
+      console.log(`✅ Profile updated successfully for ${userProfile.role} ${userProfile.uid}`);
       
       toast({
         title: "Profile Updated",
         description: "Your profile has been successfully updated",
       });
     } catch (error) {
+      console.error("❌ Error updating profile:", error);
       toast({
         title: "Error",
         description: "Failed to update profile",

@@ -16,6 +16,7 @@ import { db } from "@/lib/firebase";
 import { collection, getDocs, query, orderBy, limit, doc, setDoc, deleteDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { createInternAccount } from "@/lib/firebase";
+import { subscribeToAllTeacherPhones, subscribeToTeacherInternPhones, subscribeToAllTeachers, subscribeToTeacherInterns } from "@/lib/realtimeSync";
 import LocationPicker from "@/components/LocationPicker";
 import {
   Users,
@@ -156,6 +157,41 @@ export default function ManageTeachers() {
     fetchTeachers();
   }, [userProfile, isAuthenticated]);
 
+  // Set up real-time profile synchronization for teachers
+  React.useEffect(() => {
+    if (!userProfile?.uid || !isAuthenticated) return;
+
+    console.log(`📡 Setting up real-time teacher profile sync for ${userProfile.role} ${userProfile.uid}`);
+    
+    const unsubscribe = subscribeToAllTeachers((updatedTeachers) => {
+      console.log(`📞 Real-time teacher profile updates received:`, updatedTeachers);
+      
+      // Update teacher profiles in real-time
+      setTeachers(prevTeachers => 
+        prevTeachers.map(teacher => {
+          const updatedTeacher = updatedTeachers.find(updated => updated.uid === teacher.uid);
+          if (updatedTeacher) {
+            console.log(`📞 Updating profile for teacher ${teacher.uid}:`, updatedTeacher);
+            return { 
+              ...teacher, 
+              firstName: updatedTeacher.firstName || teacher.firstName,
+              lastName: updatedTeacher.lastName || teacher.lastName,
+              email: updatedTeacher.email || teacher.email,
+              phone: updatedTeacher.phone || teacher.phone,
+              school: updatedTeacher.school || teacher.school
+            };
+          }
+          return teacher;
+        })
+      );
+    });
+
+    return () => {
+      console.log(`📡 Cleaning up real-time teacher profile sync`);
+      unsubscribe();
+    };
+  }, [userProfile?.uid, isAuthenticated]);
+
   const handleViewInterns = async (teacher: Teacher) => {
     setSelectedTeacher(teacher);
     setLoadingInterns(true);
@@ -178,6 +214,40 @@ export default function ManageTeachers() {
     }
   };
 
+  // Set up real-time profile synchronization for teacher's interns
+  React.useEffect(() => {
+    if (!selectedTeacher?.uid || !showInternsModal) return;
+
+    console.log(`📡 Setting up real-time intern profile sync for teacher ${selectedTeacher.uid}`);
+    
+    const unsubscribe = subscribeToTeacherInterns(selectedTeacher.uid, (updatedInterns) => {
+      console.log(`📞 Real-time intern profile updates for teacher ${selectedTeacher.uid}:`, updatedInterns);
+      
+      // Update intern profiles in real-time
+      setTeacherInterns(prevInterns => 
+        prevInterns.map(intern => {
+          const updatedIntern = updatedInterns.find(updated => updated.uid === intern.uid);
+          if (updatedIntern) {
+            console.log(`📞 Updating profile for intern ${intern.uid}:`, updatedIntern);
+            return { 
+              ...intern, 
+              firstName: updatedIntern.firstName || intern.firstName,
+              lastName: updatedIntern.lastName || intern.lastName,
+              email: updatedIntern.email || intern.email,
+              phone: updatedIntern.phone || intern.phone
+            };
+          }
+          return intern;
+        })
+      );
+    });
+
+    return () => {
+      console.log(`📡 Cleaning up real-time intern profile sync for teacher ${selectedTeacher.uid}`);
+      unsubscribe();
+    };
+  }, [selectedTeacher?.uid, showInternsModal]);
+
   const handleEdit = (teacher: Teacher) => {
     setEditingTeacher(teacher);
     setEditFormData({
@@ -195,9 +265,17 @@ export default function ManageTeachers() {
     if (!editingTeacher) return;
 
     try {
-      await updateDoc(doc(db, "teachers", editingTeacher.uid), {
-        ...editFormData
-      });
+      const updateData = {
+        ...editFormData,
+        updatedAt: new Date()
+      };
+
+      // Update both collections for consistency
+      await Promise.all([
+        updateDoc(doc(db, "teachers", editingTeacher.uid), updateData),
+        updateDoc(doc(db, "users", editingTeacher.uid), updateData)
+      ]);
+      console.log("✅ Teacher updated in both collections");
 
       setTeachers(teachers.map(teacher =>
         teacher.uid === editingTeacher.uid
@@ -235,14 +313,23 @@ export default function ManageTeachers() {
         teacherId: selectedTeacher.uid
       }, userProfile.uid);
 
+      // Wait for Firestore to propagate the new data
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const internsRef = collection(db, "interns");
       const q = query(internsRef, where("teacherId", "==", selectedTeacher.uid), orderBy("createdAt", "desc"));
       const querySnapshot = await getDocs(q);
-      const internsData = querySnapshot.docs.map(doc => ({
-        ...doc.data(),
-        uid: doc.id,
-        createdAt: doc.data().createdAt?.toDate() || new Date()
-      }));
+      const internsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log(`📱 Teacher intern ${doc.id} phone:`, data.phone);
+        return {
+          ...data,
+          uid: doc.id,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          phone: typeof data.phone === "string" ? data.phone : (data.phone ? String(data.phone) : "")
+        };
+      });
+      console.log(`📱 Refreshed ${internsData.length} interns for teacher, phone fields:`, internsData.map(i => i.phone));
       setTeacherInterns(internsData);
 
       setInternFormData({

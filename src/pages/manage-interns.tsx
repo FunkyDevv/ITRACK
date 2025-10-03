@@ -25,10 +25,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { db, createInternAccount } from "@/lib/firebase";
 import { collection, getDocs, query, where, orderBy, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc } from "firebase/firestore";
 import { sendInternWelcomeEmail } from "@/lib/emailService";
+import { subscribeToAllInternPhones, subscribeToAllInterns } from "@/lib/realtimeSync";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -71,6 +73,7 @@ interface ManageInternsProps {
 export default function ManageInterns({ teacherId, teacherName }: ManageInternsProps) {
   const { user, userProfile, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [interns, setInterns] = useState<Intern[]>([]);
   const [teachers, setTeachers] = React.useState<{uid: string, name: string}[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -86,9 +89,7 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
   const [operationLoading, setOperationLoading] = React.useState<string | null>(null);
   const [bulkActionType, setBulkActionType] = React.useState<string>("");
 
-  // Migration states
-  const [isMigrating, setIsMigrating] = React.useState(false);
-  const [migrationResult, setMigrationResult] = React.useState<string | null>(null);
+
 
   // Form state
   const [formData, setFormData] = React.useState({
@@ -176,6 +177,42 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
     fetchData();
   }, [userProfile, isAuthenticated, teacherId]);
 
+  // Set up real-time profile synchronization for interns
+  React.useEffect(() => {
+    if (!userProfile?.uid || !isAuthenticated) return;
+
+    console.log(`📡 Setting up real-time intern profile sync for ${userProfile.role} ${userProfile.uid}`);
+    
+    const unsubscribe = subscribeToAllInterns((updatedInterns) => {
+      console.log(`📞 Real-time intern profile updates received:`, updatedInterns);
+      
+      // Update intern profiles in real-time
+      setInterns(prevInterns => 
+        prevInterns.map(intern => {
+          const updatedIntern = updatedInterns.find(updated => updated.uid === intern.uid);
+          if (updatedIntern) {
+            console.log(`📞 Updating profile for intern ${intern.uid}:`, updatedIntern);
+            return { 
+              ...intern, 
+              firstName: updatedIntern.firstName || intern.firstName,
+              lastName: updatedIntern.lastName || intern.lastName,
+              email: updatedIntern.email || intern.email,
+              phone: updatedIntern.phone || intern.phone,
+              teacherId: updatedIntern.teacherId || intern.teacherId,
+              teacherName: updatedIntern.teacherName || intern.teacherName
+            };
+          }
+          return intern;
+        })
+      );
+    });
+
+    return () => {
+      console.log(`📡 Cleaning up real-time intern profile sync`);
+      unsubscribe();
+    };
+  }, [userProfile?.uid, isAuthenticated]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -224,8 +261,12 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
           updateData.teacherName = selectedTeacher ? selectedTeacher.name : "Unassigned";
         }
 
-        await updateDoc(doc(db, "interns", editingIntern.uid), updateData);
-        console.log("✅ Intern updated");
+        // Update both collections for consistency
+        await Promise.all([
+          updateDoc(doc(db, "interns", editingIntern.uid), updateData),
+          updateDoc(doc(db, "users", editingIntern.uid), updateData)
+        ]);
+        console.log("✅ Intern updated in both collections");
         
         // Update the local state with the updated data
         setInterns(prev => prev.map(intern => 
@@ -256,18 +297,21 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
           ...internAccountData,
           password: "***hidden***"
         });
-        console.log("📞 Phone field before sending:", internAccountData.phone);
+        console.log("📞 Phone field before sending to backend:", internAccountData.phone);
+        console.log("📞 Phone field from form:", formData.phone);
 
         // Create intern account via backend (which handles Firebase Auth + Firestore)
         try {
           const result = await createInternAccount(internAccountData, userProfile.uid);
-          console.log("✅ Intern account created:", result);
+          console.log("✅ Intern account created with result:", result);
+          console.log("✅ Result type:", typeof result);
+          console.log("✅ Result keys:", result ? Object.keys(result) : 'null result');
           
           // Verify phone field in result
-          if (result && result.phone) {
-            console.log("📞 Phone field confirmed in result:", result.phone);
+          if (result && result.phone !== undefined) {
+            console.log("📞 Phone field confirmed in backend result:", result.phone);
           } else {
-            console.warn("⚠️ Phone field missing in result");
+            console.warn("⚠️ Phone field missing in backend result:", result);
           }
         } catch (error) {
           console.error("❌ Error creating intern account:", error);
@@ -297,18 +341,12 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
           alert(`⚠️ Intern account created successfully!\n\nHowever, the welcome email could not be sent automatically.\n\nPlease manually share these credentials with ${formData.firstName}:\n\nEmail: ${formData.email}\nPassword: ${generatedPassword}`);
         }
 
-        // Re-fetch interns to ensure UI is up-to-date
+        // Re-fetch interns to ensure UI is up-to-date with phone numbers
         console.log("🔄 Refreshing intern list...");
-        const snapshot = await getDocs(collection(db, "interns"));
-        const internsData = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          uid: doc.id,
-          createdAt: doc.data().createdAt?.toDate() || new Date(),
-          teacherName: teachers.find(t => t.uid === doc.data().teacherId)?.name || "Unassigned",
-          phone: typeof doc.data().phone === "string" ? doc.data().phone : (doc.data().phone ? String(doc.data().phone) : "")
-        })) as Intern[];
-        setInterns(internsData);
-        console.log("✅ Intern list refreshed");
+        // Wait a moment for Firestore to propagate the data
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await fetchData(); // Use the main fetch function to ensure consistency
+        console.log("✅ Intern list refreshed with latest data including phone numbers");
       }
 
       // Reset form
@@ -361,44 +399,6 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
     setError(null);
   };
 
-  const handlePhoneMigration = async () => {
-    if (isMigrating) return;
-    
-    setIsMigrating(true);
-    setMigrationResult(null);
-    
-    try {
-      console.log('🔄 Starting phone number migration...');
-      const { migrateUsersToIncludePhone } = await import("@/lib/migration");
-      const { fixMissingPhoneFields } = await import("@/lib/fixPhoneFields");
-      
-      // Run general migration first
-      const result = await migrateUsersToIncludePhone();
-      
-      // Also fix specific records that might have been missed
-      const specificFixes = [
-        'e8SKEmy09MhMOK3x6WK5VLZdBRl2', // james2@gmail.com intern
-        'Nis2VzrIgeVa2Q4mHXf460WE35S2'  // GAG intern from screenshot
-      ];
-      
-      for (const uid of specificFixes) {
-        await fixMissingPhoneFields(uid);
-      }
-      
-      if (result.success) {
-        setMigrationResult(`✅ Migration successful! Updated ${result.updatedCount} records with phone number fields. Also fixed specific missing records.`);
-        // Refresh the intern list to show updated data
-        window.location.reload();
-      } else {
-        setMigrationResult(`❌ Migration failed: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('❌ Migration error:', error);
-      setMigrationResult(`❌ Migration error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsMigrating(false);
-    }
-  };
 
   // 🚀 NEW CRUD FUNCTIONS
   const handleQuickStatusChange = async (internId: string, newStatus: string) => {
@@ -464,6 +464,7 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
       setOperationLoading(null);
     }
   };
+
 
   const handleSelectIntern = (internId: string) => {
     setSelectedInterns(prev => 
@@ -654,21 +655,6 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
           </div>
         </div>
         <div className="flex gap-2">
-          {userProfile?.role === 'supervisor' && (
-            <Button
-              onClick={handlePhoneMigration}
-              disabled={isMigrating}
-              variant="outline"
-              className="gap-2"
-            >
-              {isMigrating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Phone className="h-4 w-4" />
-              )}
-              {isMigrating ? "Migrating..." : "Add Phone Fields"}
-            </Button>
-          )}
           {teacherId && (
             <Button
               onClick={() => setShowAddForm(!showAddForm)}
@@ -681,14 +667,6 @@ export default function ManageInterns({ teacherId, teacherName }: ManageInternsP
         </div>
       </div>
 
-      {/* Migration Result Alert */}
-      {migrationResult && (
-        <Alert className={migrationResult.includes('✅') ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
-          <AlertDescription className={migrationResult.includes('✅') ? 'text-green-800' : 'text-red-800'}>
-            {migrationResult}
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Add/Edit Form */}
       {showAddForm && (teacherId || userProfile?.role === 'supervisor') && (
